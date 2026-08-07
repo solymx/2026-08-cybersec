@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>netstat 鑑識實驗 — ATM 派送主機連線判讀</title>
+<style>
+  :root{
+    --face:#ECE9E1;      /* Win32 對話框底色 */
+    --face-hi:#FFFFFF;
+    --face-lo:#9A958A;
+    --face-lo2:#6E6A61;
+    --pane:#FFFFFF;
+    --select:#10306B;
+    --ink:#1B1A17;
+    --ink-soft:#5A554B;
+    --tag-flag:#8C1D18;   /* 證物標籤・可疑 */
+    --tag-clear:#1F5D3F;  /* 證物標籤・正常 */
+    --reveal:#B0730F;
+    --reveal-bg:#FBF1DC;
+    --con-bg:#0C0C0C;     /* 主控台 */
+    --con-ink:#C8C8C8;
+    --con-hi:#FFFFFF;
+    --con-dim:#6E6E6E;
+    --con-kin:#5FA8D3;    /* 同 PID 群組反白 */
+    --ui:Tahoma,Verdana,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
+    --mono:Consolas,"Courier New","Noto Sans Mono CJK TC",monospace;
+    --doc:Georgia,"Songti TC","Noto Serif TC",serif;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;padding:18px;background:#7A8393;
+    background-image:linear-gradient(180deg,#7A8393,#5E6675);
+    font-family:var(--ui);color:var(--ink);font-size:13px;line-height:1.5;
+  }
+  .wrap{max-width:1040px;margin:0 auto}
+
+  /* ---- 證物抬頭 ---- */
+  header.evidence{
+    background:var(--tag-flag);color:#F7EFE6;padding:14px 18px;
+    border:2px solid #5D120F;
+    display:flex;flex-wrap:wrap;gap:6px 26px;align-items:baseline;
+  }
+  header.evidence h1{
+    font-family:var(--doc);font-size:17px;font-weight:400;margin:0;letter-spacing:.02em;
+  }
+  header.evidence .meta{font-family:var(--mono);font-size:11px;opacity:.85}
+  header.evidence .meta b{font-weight:400;color:#F0C9C0}
+
+  /* ---- Win32 立體邊框 ---- */
+  .bevel-out{border-top:2px solid var(--face-hi);border-left:2px solid var(--face-hi);
+             border-right:2px solid var(--face-lo2);border-bottom:2px solid var(--face-lo2)}
+  .bevel-in{border-top:2px solid var(--face-lo2);border-left:2px solid var(--face-lo2);
+            border-right:2px solid var(--face-hi);border-bottom:2px solid var(--face-hi)}
+
+  .shell{background:var(--face);padding:3px;margin-top:14px}
+  .titlebar{
+    background:linear-gradient(90deg,var(--select),#3B5C9E);color:#fff;
+    padding:3px 6px;font-size:12px;display:flex;justify-content:space-between;align-items:center;
+  }
+  .titlebar .btns{font-family:var(--mono);letter-spacing:2px;opacity:.9}
+
+  /* ---- 主控台 ---- */
+  .console{background:var(--con-bg);color:var(--con-ink);font-family:var(--mono);font-size:12.5px;
+           padding:8px 4px 10px;overflow-x:auto;min-height:340px}
+  .console .prompt{padding:0 8px;white-space:nowrap}
+  .console .prompt b{color:var(--con-hi);font-weight:400}
+  .console .blank{height:12px}
+  .console .cap{padding:0 8px;color:var(--con-hi)}
+
+  table.net{border-collapse:collapse;width:100%;font-family:var(--mono);font-size:12.5px;
+            color:var(--con-ink);white-space:nowrap}
+  table.net th{font-weight:400;text-align:left;color:var(--con-hi);padding:2px 8px;
+               border-bottom:1px solid #2A2A2A}
+  table.net td{padding:1px 8px;border-bottom:1px solid transparent}
+  table.net tr.row{cursor:pointer}
+  table.net tr.row:hover td{background:#1D2733}
+  table.net tr.row.kin td{background:#132030}
+  table.net tr.row.kin td.pid{color:var(--con-kin)}
+  table.net tr.row.sel td{background:var(--con-ink);color:#0C0C0C}
+  table.net tr.row.sel td.pid{color:#0C0C0C}
+  table.net td.ln{color:var(--con-dim);text-align:right;width:30px;user-select:none}
+  table.net tr.row.sel td.ln{color:#3A3A3A}
+  table.net td.state{color:#B9B9B9}
+  table.net td.mk{width:52px}
+
+  .tag{display:inline-block;font-size:10px;padding:0 5px;border-radius:1px;color:#fff;
+       font-family:var(--ui);vertical-align:1px}
+  .tag.f{background:#B32E27}
+  .tag.c{background:#2E7A55}
+
+  /* ---- 工具列 ---- */
+  .toolbar{padding:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;
+           border-top:1px solid var(--face-lo)}
+  button{
+    font-family:var(--ui);font-size:12px;padding:4px 12px;background:var(--face);
+    border-top:2px solid var(--face-hi);border-left:2px solid var(--face-hi);
+    border-right:2px solid var(--face-lo2);border-bottom:2px solid var(--face-lo2);
+    cursor:pointer;color:var(--ink);
+  }
+  button:active{border-top-color:var(--face-lo2);border-left-color:var(--face-lo2);
+                border-right-color:var(--face-hi);border-bottom-color:var(--face-hi)}
+  button:focus-visible{outline:2px dotted var(--ink);outline-offset:-6px}
+  button[disabled]{color:var(--face-lo);cursor:default}
+  button.flag{background:#F3DEDC}
+  button.clear{background:#DDEAE1}
+  .spacer{flex:1}
+  .hint{font-size:11px;color:var(--ink-soft)}
+
+  /* ---- 對話框 ---- */
+  .modal-bg{position:fixed;inset:0;background:rgba(20,22,28,.45);display:none;
+            align-items:center;justify-content:center;padding:16px;z-index:20}
+  .modal-bg.open{display:flex}
+  .dlg{background:var(--face);padding:3px;width:min(700px,100%);max-height:90vh;overflow:auto}
+  .dlg-body{padding:12px 14px}
+  .fld-label{font-size:12px;margin:8px 0 3px}
+  .fld{background:var(--pane);padding:5px 7px;font-family:var(--mono);font-size:12px;
+       word-break:break-all;white-space:pre-wrap}
+  .out{background:var(--con-bg);color:var(--con-ink);font-family:var(--mono);font-size:12px;
+       padding:7px 9px;margin-top:6px;white-space:pre-wrap;display:none;overflow-x:auto}
+  .out.show{display:block}
+  .out b{color:#fff;font-weight:400}
+  .out .warn{color:#E2867F}
+  .out .ok{color:#7FBF9B}
+
+  /* ---- 附件・案件筆記 ---- */
+  .report{background:#FBFAF6;margin-top:14px;padding:16px 20px;font-family:var(--doc);font-size:13.5px;line-height:1.65}
+  .report h2{font-size:15px;font-weight:400;margin:0 0 8px;letter-spacing:.03em;
+             border-bottom:1px solid var(--face-lo);padding-bottom:5px}
+  .report h2.again{margin-top:16px}
+  .report p{margin:0 0 9px}
+  .report ol,.report ul{margin:0;padding-left:20px}
+  .report li{margin-bottom:6px}
+  .report code{font-family:var(--mono);font-size:12px;background:var(--face);padding:0 3px}
+  table.subnet{border-collapse:collapse;width:100%;font-family:var(--mono);font-size:11.5px;margin-top:4px}
+  table.subnet th{text-align:left;font-weight:400;background:var(--face);padding:3px 7px;border:1px solid var(--face-lo)}
+  table.subnet td{padding:3px 7px;border:1px solid #E4E1D8;vertical-align:top}
+  .score{font-family:var(--mono);font-size:12px;background:var(--face);padding:9px 12px;margin-top:10px;white-space:pre-wrap}
+  .verdict{display:none;margin-top:12px;border-top:1px dashed var(--face-lo);padding-top:12px}
+  .verdict.show{display:block}
+  .vrow{display:flex;gap:9px;padding:4px 0;border-bottom:1px solid #EFEDE6;align-items:baseline}
+  .vrow .vk{font-family:var(--mono);font-size:12px;min-width:34px}
+  .vrow .vv{font-size:12.5px}
+  .vrow.ok .vk{color:var(--tag-clear)}
+  .vrow.no .vk{color:var(--tag-flag)}
+
+  footer{color:#DDE1E8;font-size:11px;margin-top:14px;text-align:center;line-height:1.7}
+  footer b{color:#fff;font-weight:400}
+
+  @media (max-width:760px){
+    body{padding:8px}
+    .console{font-size:11.5px}
+    table.net{font-size:11.5px}
+    table.net td.ln,table.net th.ln{display:none}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{animation:none!important;transition:none!important}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="evidence">
+    <h1>證物 EV-2016-0708-11 — ATM 派送主機現場連線快照</h1>
+    <div class="meta">
+      主機 <b>TPE-ATMAP-03</b>（10.10.30.21）・ 登入帳號 <b>CORP\svc_atm</b> ・
+      指令 <b>netstat -ano</b> ・ 執行時間 <b>2016-07-08 03:41 (UTC+8)</b>
+    </div>
+  </header>
+
+  <div class="shell bevel-out">
+    <div class="titlebar">
+      <span>系統管理員: 命令提示字元 — 現場即時取證（volatile data）</span>
+      <span class="btns">_ □ ×</span>
+    </div>
+
+    <div class="console bevel-in">
+      <div class="prompt">C:\Users\svc_atm&gt;<b>netstat -ano</b></div>
+      <div class="blank"></div>
+      <div class="cap">作用中連線</div>
+      <div class="blank"></div>
+      <table class="net">
+        <thead><tr>
+          <th class="ln"></th>
+          <th style="width:56px">協定</th>
+          <th style="width:190px">本機位址</th>
+          <th style="width:190px">外部位址</th>
+          <th style="width:130px">狀態</th>
+          <th style="width:60px">PID</th>
+          <th class="mk"></th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+
+    <div class="toolbar">
+      <button id="btnEst">只顯示 ESTABLISHED</button>
+      <button id="btnGroup">依 PID 分組</button>
+      <button id="btnOpen" disabled>查詢這條連線</button>
+      <span class="spacer"></span>
+      <button id="btnFlag" class="flag" disabled>標記為可疑</button>
+      <button id="btnClear" class="clear" disabled>標記為正常</button>
+      <button id="btnCheck">檢查作答</button>
+    </div>
+    <div class="toolbar" style="border-top:0;padding-top:0">
+      <span class="hint" id="hint">點選一列，同一個 PID 的其他連線會一起淡藍反白。netstat 只給你 PID，程式叫什麼名字要另外查。</span>
+    </div>
+  </div>
+
+  <div class="report">
+    <h2>附件 A — 網段配置表（資訊處提供）</h2>
+    <table class="subnet">
+      <thead><tr><th style="width:150px">網段</th><th style="width:150px">用途</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td>10.10.10.0/24</td><td>核心伺服器</td><td>網域控制站、資料庫，台北總行機房</td></tr>
+        <tr><td>10.10.20.0/24</td><td>監控與管理</td><td>資訊處監控平台、資產盤點</td></tr>
+        <tr><td>10.10.30.0/24</td><td>ATM 應用管理</td><td>本機所在網段；負責 ATM 軟體版本派送</td></tr>
+        <tr><td>10.10.50.0/24</td><td>管理者用戶端</td><td>資訊處人員辦公桌電腦，遠端維運來源</td></tr>
+        <tr><td>10.20.14.0/24</td><td>ATM 端末</td><td>分行 ATM 機台，僅接受派送主機推送</td></tr>
+        <tr><td>10.63.7.0/24</td><td>倫敦分行 OA</td><td>語音錄音系統與辦公網路，經跨行 VPN 與總行相連</td></tr>
+        <tr><td>198.51.100.0/24</td><td>ATMWare 原廠</td><td>維護合約內的更新服務，已列防火牆白名單</td></tr>
+        <tr><td>203.0.113.0/24</td><td>未知</td><td>境外主機代管業者位址，無任何合約紀錄</td></tr>
+      </tbody>
+    </table>
+
+    <h2 class="again">案情</h2>
+    <p>2016 年 7 月，某銀行的分行 ATM 在無人插卡的情況下連續吐鈔。事後追查發現，攻擊者並不是從台灣打進來的：他們先拿下該行<em>倫敦分行</em>一台對外曝險的錄音系統，再沿著分行與總行之間的內部連線一路移動到台北，最後控制了負責推送 ATM 軟體的管理主機，把惡意程式當成「版本更新」派送到各分行的機台上。</p>
+    <p>你現在站在事件發生前一天的現場。值班工程師覺得這台派送主機「半夜硬碟一直在轉」，在關機前先跑了一次 <code>netstat -ano</code> 把揮發性資料留下來。這 18 行就是當時的全部畫面。</p>
+
+    <h2 class="again">你的任務</h2>
+    <ol>
+      <li>逐行判讀 18 條連線，替每一條標記「可疑」或「正常」。</li>
+      <li><code>netstat -ano</code> 只給 PID，不給程式名稱。挑出那個不該存在的 PID，並列出它建立的<em>所有</em>連線。</li>
+      <li>其中一條 RDP 連線是攻擊者本人。說明你憑什麼認定它，而不是另一條。注意：它背後的行程是合法的系統元件。</li>
+      <li>有一條連線是連往境外 IP，卻是正常的；也有好幾條連線的對象是自家內網，卻是攻擊的一部分。指出它們，並說明「內部／外部」為什麼不能拿來當判斷標準。</li>
+      <li>綜合以上，寫下這台主機在攻擊鏈中扮演的角色，以及你會建議先切斷哪一條連線。</li>
+    </ol>
+    <div class="score" id="score">已標記 0 / 18　　可疑 0　　正常 0</div>
+    <div class="verdict" id="verdict"></div>
+  </div>
+
+  <footer>
+    <b>合成資料，僅供教學。</b>案情改編自公開報導的真實事件，主機名稱、帳號與時間均為虛構；
+    IP 位址取自 RFC 1918 私有網段與 RFC 5737 文件保留網段，不對應任何真實主機。
+    此頁面不執行任何命令，也不會對外發出任何請求。
+  </footer>
+</div>
+
+<!-- 招牌元件：連線查詢對話框 -->
+<div class="modal-bg" id="modal" role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
+  <div class="dlg bevel-out">
+    <div class="titlebar">
+      <span id="dlgTitle">連線查詢</span>
+      <span class="btns"><button id="btnX" style="padding:0 7px;font-size:11px">×</button></span>
+    </div>
+    <div class="dlg-body">
+      <div class="fld-label">這一行 netstat 輸出：</div>
+      <div class="fld bevel-in" id="dlgLine"></div>
+
+      <div class="toolbar" style="padding-left:0;border-top:0">
+        <button id="btnT1">① tasklist /svc</button>
+        <button id="btnT2">② 路徑・簽章・登入工作階段</button>
+        <button id="btnT3">③ 外部位址歸屬</button>
+      </div>
+      <div class="hint" style="margin-bottom:4px">三個步驟就是實務上的追查順序：先由 PID 換到程式名稱，再確認這個程式是不是它自稱的那個，最後才看它在跟誰講話。</div>
+
+      <div class="out" id="out1"></div>
+      <div class="out" id="out2"></div>
+      <div class="out" id="out3"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ---- 連線清單（畫面順序即 netstat 原始輸出順序）---- */
+  var CONN = [
+    {n:"01",proto:"TCP",loc:"0.0.0.0:135",       fgn:"0.0.0.0:0",         st:"LISTENING",   pid:"968"},
+    {n:"02",proto:"TCP",loc:"0.0.0.0:445",       fgn:"0.0.0.0:0",         st:"LISTENING",   pid:"4"},
+    {n:"03",proto:"TCP",loc:"0.0.0.0:3389",      fgn:"0.0.0.0:0",         st:"LISTENING",   pid:"1284"},
+    {n:"04",proto:"TCP",loc:"0.0.0.0:49731",     fgn:"0.0.0.0:0",         st:"LISTENING",   pid:"3820"},
+    {n:"05",proto:"TCP",loc:"10.10.30.21:139",   fgn:"0.0.0.0:0",         st:"LISTENING",   pid:"4"},
+    {n:"06",proto:"TCP",loc:"10.10.30.21:3389",  fgn:"10.10.50.12:52144", st:"ESTABLISHED", pid:"1284",
+     sess:"工作階段 RDP-Tcp#7\n  使用者    CORP\\it.chang（資訊處 網路組）\n  登入時間  2016-07-07 14:02:11\n  登入類型  10 RemoteInteractive\n  來源位址  10.10.50.12"},
+    {n:"07",proto:"TCP",loc:"10.10.30.21:3389",  fgn:"10.63.7.44:60217",  st:"ESTABLISHED", pid:"1284",
+     sess:"工作階段 RDP-Tcp#12\n  使用者    CORP\\svc_atm（ATM 派送服務帳號）\n  登入時間  2016-07-08 03:14:52\n  登入類型  10 RemoteInteractive\n  來源位址  10.63.7.44"},
+    {n:"08",proto:"TCP",loc:"10.10.30.21:49712", fgn:"10.10.10.5:389",    st:"ESTABLISHED", pid:"968"},
+    {n:"09",proto:"TCP",loc:"10.10.30.21:49688", fgn:"10.10.10.5:1433",   st:"ESTABLISHED", pid:"2612"},
+    {n:"10",proto:"TCP",loc:"10.10.30.21:49801", fgn:"10.10.20.30:8080",  st:"ESTABLISHED", pid:"2044"},
+    {n:"11",proto:"TCP",loc:"10.10.30.21:50122", fgn:"10.20.14.7:445",    st:"ESTABLISHED", pid:"3820"},
+    {n:"12",proto:"TCP",loc:"10.10.30.21:50123", fgn:"10.20.14.11:445",   st:"ESTABLISHED", pid:"3820"},
+    {n:"13",proto:"TCP",loc:"10.10.30.21:50124", fgn:"10.20.14.23:445",   st:"TIME_WAIT",   pid:"3820"},
+    {n:"14",proto:"TCP",loc:"10.10.30.21:50310", fgn:"10.63.7.44:445",    st:"ESTABLISHED", pid:"3820"},
+    {n:"15",proto:"TCP",loc:"10.10.30.21:50455", fgn:"203.0.113.77:443",  st:"ESTABLISHED", pid:"3820"},
+    {n:"16",proto:"TCP",loc:"10.10.30.21:50501", fgn:"198.51.100.42:443", st:"ESTABLISHED", pid:"2612"},
+    {n:"17",proto:"TCP",loc:"127.0.0.1:49155",   fgn:"127.0.0.1:49156",   st:"ESTABLISHED", pid:"1976"},
+    {n:"18",proto:"UDP",proto2:true,loc:"10.10.30.21:137", fgn:"*:*",     st:"",            pid:"4"}
+  ];
+
+  /* ---- PID → 行程（步驟 ① ②）---- */
+  var PROC = {
+    "4":   {img:"System", svc:"—",
+            path:"（核心，無影像路徑）", sig:"—", start:"2016-07-02 09:10:44", parent:"—",
+            more:"SMB(445)/NetBIOS(137,139) 在 Windows 由核心直接處理，掛在 PID 4 是預期行為。"},
+    "968": {img:"svchost.exe", svc:"RpcSs",
+            path:"C:\\Windows\\System32\\svchost.exe", sig:"Microsoft Windows Publisher（有效）",
+            start:"2016-07-02 09:10:52", parent:"services.exe (PID 604)",
+            more:"RPC 端點對應程式，同時負責向網域控制站做 LDAP 查詢。"},
+    "1284":{img:"svchost.exe", svc:"TermService",
+            path:"C:\\Windows\\System32\\svchost.exe", sig:"Microsoft Windows Publisher（有效）",
+            start:"2016-07-02 09:10:58", parent:"services.exe (PID 604)",
+            more:"遠端桌面服務本體。它是乾淨的系統元件 —— 判斷要看「誰連進來、用哪個帳號、什麼時間」，不是看這個行程。"},
+    "1976":{img:"spoolsv.exe", svc:"Spooler",
+            path:"C:\\Windows\\System32\\spoolsv.exe", sig:"Microsoft Windows Publisher（有效）",
+            start:"2016-07-02 09:11:03", parent:"services.exe (PID 604)",
+            more:"列印多工緩衝處理器，本機迴路通訊。"},
+    "2044":{img:"MonAgent.exe", svc:"NetMonAgent",
+            path:"C:\\Program Files\\NetMon\\MonAgent.exe", sig:"NetMon Systems Inc.（有效）",
+            start:"2016-07-02 09:11:20", parent:"services.exe (PID 604)",
+            more:"資訊處監控代理程式，每 60 秒回報一次心跳。"},
+    "2612":{img:"atmsvc.exe", svc:"ATMDispatch",
+            path:"C:\\Program Files\\ATMWare\\atmsvc.exe", sig:"ATMWare Technology Co.（有效）",
+            start:"2016-07-02 09:11:31", parent:"services.exe (PID 604)",
+            more:"ATM 版本派送服務本體，本機的正職工作。"},
+    "3820":{img:"cngdisp.exe", svc:"N/A",
+            path:"C:\\Windows\\Temp\\cngdisp.exe", sig:"※ 未經簽署，無發行者資訊",
+            start:"2016-07-08 03:19:07", parent:"cmd.exe (PID 4412) ← 由工作階段 RDP-Tcp#12 啟動",
+            bad:true,
+            more:"名稱刻意模仿 ATM 廠商的顯示模組。落在 C:\\Windows\\Temp、沒有簽章、沒有註冊成服務、開機七天後才在凌晨三點多被手動執行 —— 每一項都與其他行程相反。"}
+  };
+
+  /* ---- 外部位址歸屬（步驟 ③）---- */
+  var NET = [
+    {p:"10.10.10.",  t:"核心伺服器網段 — 網域控制站 DC01（389 LDAP／1433 SQL）"},
+    {p:"10.10.20.",  t:"監控與管理網段 — 資訊處監控平台"},
+    {p:"10.10.30.",  t:"本機所在網段 — ATM 應用管理"},
+    {p:"10.10.50.",  t:"管理者用戶端網段 — 資訊處人員辦公桌電腦"},
+    {p:"10.20.14.",  t:"ATM 端末網段 — 分行機台（10.20.14.7／.11／.23 分別為信義、松山、大安分行）"},
+    {p:"10.63.7.",   t:"※ 倫敦分行 OA 網段 — 語音錄音系統與辦公網路，經跨行 VPN 連線",flag:true},
+    {p:"198.51.100.",t:"ATMWare 原廠更新服務 — 維護合約內，已列於防火牆白名單"},
+    {p:"203.0.113.", t:"※ 境外主機代管業者位址 — 無合約、無工單、不在任何白名單內",flag:true},
+    {p:"127.0.0.1",  t:"本機迴路位址，未離開這台主機"},
+    {p:"0.0.0.0",    t:"監聽所有網路介面（不是一條實際連線）"},
+    {p:"*",          t:"UDP 無連線狀態，外部位址固定顯示為 *:*"}
+  ];
+
+  /* ---- 解答 ---- */
+  var KEY = {
+    "01":{bad:false,why:"RPC 端點對應程式監聽 135，網域環境的標準組態。"},
+    "02":{bad:false,why:"SMB 監聽 445，掛在 PID 4（核心），檔案共用的預期行為。"},
+    "03":{bad:false,why:"RDP 服務在監聽 3389。監聽本身不是入侵 —— 這台主機本來就開放遠端維運。要看的是誰連進來（第 06、07 行）。"},
+    "04":{bad:true, why:"PID 3820 在高位埠 49731 開了監聽。合法服務不會在 C:\\Windows\\Temp 執行又自己開後門埠（T1071）。"},
+    "05":{bad:false,why:"NetBIOS 工作階段服務監聽 139，同樣屬於核心。"},
+    "06":{bad:false,why:"資訊處 it.chang 從管理者網段 10.10.50.12 在上班時間登入維運，帳號、來源、時間三者相符。"},
+    "07":{bad:true, why:"攻擊者本人。來源 10.63.7.44 是倫敦分行的 OA 網段 —— 分行辦公網路沒有理由遠端桌面連進台北的 ATM 派送主機。再加上凌晨 03:14、用的是服務帳號 svc_atm（服務帳號不該有互動式登入）。注意這條連線的行程 PID 1284 是乾淨的系統元件（T1021.001）。"},
+    "08":{bad:false,why:"向網域控制站做 LDAP 查詢（389），由 svchost/RpcSs 發出。"},
+    "09":{bad:false,why:"ATM 派送服務連自己的資料庫（1433），這是它的正職工作。"},
+    "10":{bad:false,why:"監控代理程式回報心跳到監控平台 8080。"},
+    "11":{bad:true, why:"PID 3820 對 ATM 機台推送 SMB(445)。派送作業本來該由 atmsvc.exe（PID 2612）執行，現在換成 Temp 底下的無簽章程式在做（T1570 橫向工具傳輸）。"},
+    "12":{bad:true, why:"同上，第二台 ATM 機台。三台連續的機台恰好對應隔天吐鈔的分行。"},
+    "13":{bad:true, why:"同上，第三台。TIME_WAIT 代表連線剛剛才結束 —— 檔案已經送完了，這是最急迫的線索。"},
+    "14":{bad:true, why:"PID 3820 反過來連回倫敦分行的 445，從跳板取檔。方向相反，但對象是同一個網段，與第 07 行互相印證。"},
+    "15":{bad:true, why:"PID 3820 對境外 203.0.113.77:443 的外連，唯一一條真正離開內網的通道，用 443 偽裝成一般 HTTPS（T1071.001）。"},
+    "16":{bad:false,why:"陷阱題。境外 IP、443 埠，但行程是有效簽章的 atmsvc.exe，對象是合約內、已列白名單的原廠更新服務。連往外部不等於惡意。"},
+    "17":{bad:false,why:"127.0.0.1 對 127.0.0.1，封包沒有離開這台主機。"},
+    "18":{bad:false,why:"NetBIOS 名稱服務 UDP 137。UDP 無連線導向，所以狀態欄是空的、外部位址顯示 *:* —— 這是格式，不是異常。"}
+  };
+
+  var marks = {};      // {"07":"f"|"c"}
+  var sel = null;
+  var estOnly = false;
+  var grouped = false;
+
+  var $ = function(id){ return document.getElementById(id); };
+  function esc(s){
+    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  }
+  function byN(n){
+    for(var i=0;i<CONN.length;i++){ if(CONN[i].n===n) return CONN[i]; }
+    return null;
+  }
+
+  function view(){
+    var list = CONN.slice();
+    if(estOnly) list = list.filter(function(c){ return c.st === "ESTABLISHED"; });
+    if(grouped) list.sort(function(a,b){
+      var d = parseInt(a.pid,10) - parseInt(b.pid,10);
+      return d !== 0 ? d : (a.n < b.n ? -1 : 1);
+    });
+    return list;
+  }
+
+  function render(){
+    var tb = $("rows"), selPid = sel ? byN(sel).pid : null;
+    tb.innerHTML = "";
+    view().forEach(function(c){
+      var tr = document.createElement("tr");
+      tr.className = "row" + (sel === c.n ? " sel" : (selPid && c.pid === selPid ? " kin" : ""));
+      tr.tabIndex = 0;
+      tr.setAttribute("data-n", c.n);
+      var tag = marks[c.n] === "f" ? '<span class="tag f">可疑</span>'
+              : marks[c.n] === "c" ? '<span class="tag c">正常</span>' : "";
+      tr.innerHTML =
+        '<td class="ln">' + c.n + '</td>' +
+        '<td>' + c.proto + '</td>' +
+        '<td>' + c.loc + '</td>' +
+        '<td>' + c.fgn + '</td>' +
+        '<td class="state">' + (c.st || "") + '</td>' +
+        '<td class="pid">' + c.pid + '</td>' +
+        '<td class="mk">' + tag + '</td>';
+      tb.appendChild(tr);
+    });
+
+    var f = 0, c2 = 0;
+    Object.keys(marks).forEach(function(k){ marks[k] === "f" ? f++ : c2++; });
+    $("score").textContent = "已標記 " + (f + c2) + " / 18　　可疑 " + f + "　　正常 " + c2;
+
+    ["btnOpen","btnFlag","btnClear"].forEach(function(id){ $(id).disabled = !sel; });
+  }
+
+  function select(n){
+    sel = n;
+    render();
+    var c = byN(n);
+    $("hint").textContent = "已選取第 " + n + " 行（PID " + c.pid + "）。淡藍色的是同一個 PID 的其他連線 —— 一個行程的所有連線要一起看。";
+  }
+
+  $("rows").addEventListener("click", function(e){
+    var tr = e.target.closest("tr[data-n]");
+    if(tr) select(tr.getAttribute("data-n"));
+  });
+  $("rows").addEventListener("dblclick", function(e){
+    var tr = e.target.closest("tr[data-n]");
+    if(tr){ select(tr.getAttribute("data-n")); openDlg(); }
+  });
+  $("rows").addEventListener("keydown", function(e){
+    var tr = e.target.closest("tr[data-n]");
+    if(tr && (e.key === "Enter" || e.key === " ")){
+      e.preventDefault(); select(tr.getAttribute("data-n")); openDlg();
+    }
+  });
+
+  $("btnEst").addEventListener("click", function(){
+    estOnly = !estOnly;
+    this.textContent = estOnly ? "顯示全部連線" : "只顯示 ESTABLISHED";
+    $("hint").textContent = estOnly
+      ? "只剩已建立的連線。方便，但 LISTENING 才是後門常藏身的地方 —— 記得換回去看一次。"
+      : "回到完整輸出。";
+    render();
+  });
+  $("btnGroup").addEventListener("click", function(){
+    grouped = !grouped;
+    this.textContent = grouped ? "還原原始順序" : "依 PID 分組";
+    $("hint").textContent = grouped
+      ? "同一個 PID 的連線排在一起了。分散在 18 行裡看不出來的事情，排在一起就很難不注意到。"
+      : "回到 netstat 的原始輸出順序。";
+    render();
+  });
+  $("btnFlag").addEventListener("click", function(){ marks[sel] = "f"; render(); });
+  $("btnClear").addEventListener("click", function(){ marks[sel] = "c"; render(); });
+
+  /* ---- 對話框 ---- */
+  function openDlg(){
+    if(!sel) return;
+    var c = byN(sel);
+    $("dlgLine").textContent =
+      "  " + c.proto + "   " + c.loc + "   " + c.fgn + "   " + (c.st || "") + "   " + c.pid;
+    ["out1","out2","out3"].forEach(function(id){ $(id).className = "out"; });
+    $("modal").classList.add("open");
+    $("btnX").focus();
+  }
+  function closeDlg(){ $("modal").classList.remove("open"); }
+
+  $("btnOpen").addEventListener("click", openDlg);
+  $("btnX").addEventListener("click", closeDlg);
+  $("modal").addEventListener("click", function(e){ if(e.target === this) closeDlg(); });
+  document.addEventListener("keydown", function(e){ if(e.key === "Escape") closeDlg(); });
+
+  $("btnT1").addEventListener("click", function(){
+    var c = byN(sel), p = PROC[c.pid];
+    var txt = "C:\\&gt;tasklist /svc /FI \"PID eq " + c.pid + "\"\n\n"
+            + "映像名稱                     PID 服務\n"
+            + "========================= ====== ============================\n"
+            + "<b>" + p.img + "</b>" + new Array(Math.max(1, 26 - p.img.length)).join(" ")
+            + new Array(Math.max(1, 7 - c.pid.length)).join(" ") + c.pid + " " + p.svc;
+    $("out1").innerHTML = txt;
+    $("out1").className = "out show";
+  });
+
+  $("btnT2").addEventListener("click", function(){
+    var c = byN(sel), p = PROC[c.pid];
+    var txt = "C:\\&gt;wmic process where ProcessId=" + c.pid + " get ExecutablePath\n"
+            + "  路徑      " + (p.bad ? '<span class="warn">' + esc(p.path) + "</span>" : esc(p.path)) + "\n"
+            + "  數位簽章  " + (p.bad ? '<span class="warn">' + esc(p.sig) + "</span>"
+                                       : '<span class="ok">' + esc(p.sig) + "</span>") + "\n"
+            + "  建立時間  " + (p.bad ? '<span class="warn">' + p.start + "</span>" : p.start) + "\n"
+            + "  父行程    " + (p.bad ? '<span class="warn">' + esc(p.parent) + "</span>" : esc(p.parent)) + "\n"
+            + "\n  " + esc(p.more);
+    if(c.sess){
+      txt += "\n\nC:\\&gt;qwinsta /server:localhost　（並比對事件 4624）\n  " + esc(c.sess).replace(/\n/g, "\n  ");
+    }
+    $("out2").innerHTML = txt;
+    $("out2").className = "out show";
+  });
+
+  $("btnT3").addEventListener("click", function(){
+    var c = byN(sel), hit = null;
+    for(var i = 0; i < NET.length; i++){
+      if(c.fgn.indexOf(NET[i].p) === 0){ hit = NET[i]; break; }
+    }
+    var txt = "外部位址  " + c.fgn + "\n  歸屬      "
+            + (hit ? (hit.flag ? '<span class="warn">' + esc(hit.t) + "</span>" : esc(hit.t)) : "查無資料");
+    $("out3").innerHTML = txt;
+    $("out3").className = "out show";
+  });
+
+  /* ---- 對答案 ---- */
+  $("btnCheck").addEventListener("click", function(){
+    var v = $("verdict"), html = "", right = 0, done = 0;
+    CONN.forEach(function(c){
+      var mine = marks[c.n], truth = KEY[c.n].bad ? "f" : "c", ok = mine === truth;
+      if(mine) done++;
+      if(ok) right++;
+      html += '<div class="vrow ' + (ok ? "ok" : (mine ? "no" : "")) + '">'
+            + '<span class="vk">' + (mine ? (ok ? "✓" : "✗") : "–") + " " + c.n + '</span>'
+            + '<span class="vv"><b>' + (KEY[c.n].bad ? "可疑" : "正常") + '</b> — '
+            + esc(KEY[c.n].why) + '</span></div>';
+    });
+    var head = "<p><b>" + right + " / 18 正確</b>（已作答 " + done + " 筆）。這台主機上有 7 條異常連線，"
+      + "全部收束到兩件事：<code>PID 3820</code> 是一支放在 <code>C:\\Windows\\Temp</code> 的無簽章程式（第 04、11、12、13、14、15 行），"
+      + "而它的父行程來自第 07 行那條凌晨從<em>倫敦分行網段</em>連進來的遠端桌面工作階段。"
+      + "第 07 行是整條攻擊鏈的入口，第 11～13 行是結果 —— 惡意程式已經送到三台 ATM 上，隔天就會吐鈔。</p>"
+      + "<p>兩個必須留下的觀念：連線的行程合法（第 07 行是乾淨的 TermService），不代表連線合法；"
+      + "對象在境外（第 16 行是原廠更新），也不代表連線不合法。真正能拿來判斷的是 <em>行程來歷 × 帳號 × 時間 × 網段用途</em> 的組合。</p>";
+    v.innerHTML = "<h2>判讀對照</h2>" + head + html;
+    v.className = "verdict show";
+    v.scrollIntoView({behavior:"smooth",block:"nearest"});
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

