@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dir 鑑識實驗 — 時間戳與擁有者判讀</title>
+<style>
+  :root{
+    --face:#ECE9E1;
+    --face-hi:#FFFFFF;
+    --face-lo:#9A958A;
+    --face-lo2:#6E6A61;
+    --pane:#FFFFFF;
+    --select:#10306B;
+    --ink:#1B1A17;
+    --ink-soft:#5A554B;
+    --tag-flag:#8C1D18;
+    --tag-clear:#1F5D3F;
+    --con-bg:#0C0C0C;
+    --con-ink:#C8C8C8;
+    --con-hi:#FFFFFF;
+    --con-dim:#6E6E6E;
+    --ui:Tahoma,Verdana,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
+    --mono:Consolas,"Courier New","Noto Sans Mono CJK TC",monospace;
+    --doc:Georgia,"Songti TC","Noto Serif TC",serif;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;padding:18px;background:#7A8393;
+    background-image:linear-gradient(180deg,#7A8393,#5E6675);
+    font-family:var(--ui);color:var(--ink);font-size:13px;line-height:1.5;
+  }
+  .wrap{max-width:1060px;margin:0 auto}
+
+  header.evidence{
+    background:var(--tag-flag);color:#F7EFE6;padding:14px 18px;border:2px solid #5D120F;
+    display:flex;flex-wrap:wrap;gap:6px 26px;align-items:baseline;
+  }
+  header.evidence h1{font-family:var(--doc);font-size:17px;font-weight:400;margin:0;letter-spacing:.02em}
+  header.evidence .meta{font-family:var(--mono);font-size:11px;opacity:.85}
+  header.evidence .meta b{font-weight:400;color:#F0C9C0}
+
+  .bevel-out{border-top:2px solid var(--face-hi);border-left:2px solid var(--face-hi);
+             border-right:2px solid var(--face-lo2);border-bottom:2px solid var(--face-lo2)}
+  .bevel-in{border-top:2px solid var(--face-lo2);border-left:2px solid var(--face-lo2);
+            border-right:2px solid var(--face-hi);border-bottom:2px solid var(--face-hi)}
+
+  .shell{background:var(--face);padding:3px;margin-top:14px}
+  .titlebar{background:linear-gradient(90deg,var(--select),#3B5C9E);color:#fff;
+            padding:3px 6px;font-size:12px;display:flex;justify-content:space-between;align-items:center}
+  .titlebar .btns{font-family:var(--mono);letter-spacing:2px;opacity:.9}
+
+  .console{background:var(--con-bg);color:var(--con-ink);font-family:var(--mono);font-size:12.5px;
+           padding:8px 4px 10px;overflow-x:auto;min-height:360px}
+  .console .line{padding:0 8px;white-space:pre}
+  .console .line b{color:var(--con-hi);font-weight:400}
+  .console .gap{height:12px}
+  .console .note{padding:2px 8px;color:var(--con-dim);white-space:pre-wrap}
+
+  table.dir{border-collapse:collapse;width:100%;font-family:var(--mono);font-size:12.5px;
+            color:var(--con-ink);white-space:nowrap}
+  table.dir td{padding:1px 8px}
+  table.dir tr.row{cursor:pointer}
+  table.dir tr.row:hover td{background:#1D2733}
+  table.dir tr.row.sel td{background:var(--con-ink);color:#0C0C0C}
+  td.sz{text-align:right;width:110px}
+  td.dt{width:96px}
+  td.tm{width:56px}
+  td.ow{width:190px}
+  td.mk{width:52px}
+  .tag{display:inline-block;font-size:10px;padding:0 5px;border-radius:1px;color:#fff;
+       font-family:var(--ui);vertical-align:1px}
+  .tag.f{background:#B32E27}
+  .tag.c{background:#2E7A55}
+
+  .toolbar{padding:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;border-top:1px solid var(--face-lo)}
+  .seg{display:flex;gap:0}
+  .seg button{border-right-width:1px}
+  .seg button.on{background:#CFD8E8}
+  button{
+    font-family:var(--ui);font-size:12px;padding:4px 12px;background:var(--face);
+    border-top:2px solid var(--face-hi);border-left:2px solid var(--face-hi);
+    border-right:2px solid var(--face-lo2);border-bottom:2px solid var(--face-lo2);
+    cursor:pointer;color:var(--ink);
+  }
+  button:active{border-top-color:var(--face-lo2);border-left-color:var(--face-lo2);
+                border-right-color:var(--face-hi);border-bottom-color:var(--face-hi)}
+  button:focus-visible{outline:2px dotted var(--ink);outline-offset:-6px}
+  button[disabled]{color:var(--face-lo);cursor:default}
+  button.flag{background:#F3DEDC}
+  button.clear{background:#DDEAE1}
+  .spacer{flex:1}
+  .hint{font-size:11px;color:var(--ink-soft)}
+  .lbl{font-size:11px;color:var(--ink-soft);margin-right:2px}
+
+  .modal-bg{position:fixed;inset:0;background:rgba(20,22,28,.45);display:none;
+            align-items:center;justify-content:center;padding:16px;z-index:20}
+  .modal-bg.open{display:flex}
+  .dlg{background:var(--face);padding:3px;width:min(700px,100%);max-height:90vh;overflow:auto}
+  .dlg-body{padding:12px 14px}
+  .kv{display:grid;grid-template-columns:118px 1fr;gap:3px 10px;font-size:12px;
+      background:var(--pane);padding:9px 11px}
+  .kv .k{color:var(--ink-soft)}
+  .kv .v{font-family:var(--mono);font-size:11.5px;word-break:break-all;white-space:pre-wrap}
+  .warn{color:#8C1D18}
+  .out{background:var(--con-bg);color:var(--con-ink);font-family:var(--mono);font-size:11.5px;
+       padding:7px 9px;margin-top:8px;white-space:pre-wrap;display:none;overflow-x:auto}
+  .out.show{display:block}
+  .out .warnc{color:#E2867F}
+
+  .report{background:#FBFAF6;margin-top:14px;padding:16px 20px;font-family:var(--doc);font-size:13.5px;line-height:1.65}
+  .report h2{font-size:15px;font-weight:400;margin:0 0 8px;letter-spacing:.03em;
+             border-bottom:1px solid var(--face-lo);padding-bottom:5px}
+  .report h2.again{margin-top:16px}
+  .report p{margin:0 0 9px}
+  .report ol,.report ul{margin:0;padding-left:20px}
+  .report li{margin-bottom:6px}
+  .report code{font-family:var(--mono);font-size:12px;background:var(--face);padding:0 3px}
+  table.ref{border-collapse:collapse;width:100%;font-size:12px;margin-top:4px}
+  table.ref th{text-align:left;font-weight:400;background:var(--face);padding:3px 7px;border:1px solid var(--face-lo)}
+  table.ref td{padding:3px 7px;border:1px solid #E4E1D8;vertical-align:top}
+  table.ref td.m{font-family:var(--mono);font-size:11.5px}
+  .score{font-family:var(--mono);font-size:12px;background:var(--face);padding:9px 12px;margin-top:10px;white-space:pre-wrap}
+  .verdict{display:none;margin-top:12px;border-top:1px dashed var(--face-lo);padding-top:12px}
+  .verdict.show{display:block}
+  .vrow{display:flex;gap:9px;padding:4px 0;border-bottom:1px solid #EFEDE6;align-items:baseline}
+  .vrow .vk{font-family:var(--mono);font-size:12px;min-width:34px}
+  .vrow .vv{font-size:12.5px}
+  .vrow.ok .vk{color:var(--tag-clear)}
+  .vrow.no .vk{color:var(--tag-flag)}
+
+  footer{color:#DDE1E8;font-size:11px;margin-top:14px;text-align:center;line-height:1.7}
+  footer b{color:#fff;font-weight:400}
+
+  @media (max-width:760px){
+    body{padding:8px}
+    .console,table.dir{font-size:11.5px}
+    td.ow{width:150px}
+    .kv{grid-template-columns:1fr}
+    .kv .k{margin-top:5px}
+  }
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="evidence">
+    <h1>證物 EV-2026-0715-02 — 網站程式目錄檔案清單</h1>
+    <div class="meta">
+      主機 <b>WEB-DMZ-04</b>（DMZ 對外付款閘道）・ 取證帳號 <b>CORP\ir.tsai</b> ・
+      執行時間 <b>2026-07-15 11:26 (UTC+8)</b>
+    </div>
+  </header>
+
+  <div class="shell bevel-out">
+    <div class="titlebar">
+      <span>系統管理員: 命令提示字元 — 唯讀取證</span>
+      <span class="btns">_ □ ×</span>
+    </div>
+
+    <div class="console bevel-in">
+      <div class="line">C:\inetpub\wwwroot\paygate\bin&gt;<b id="cmd"></b></div>
+      <div class="gap"></div>
+      <div class="line"> 磁碟區 C 中的磁碟是 OS</div>
+      <div class="line"> 磁碟區序號:  9C4A-2F1D</div>
+      <div class="gap"></div>
+      <div class="line"> C:\inetpub\wwwroot\paygate\bin 的目錄</div>
+      <div class="gap"></div>
+      <table class="dir"><tbody id="rows"></tbody></table>
+      <div class="gap"></div>
+      <div class="line" id="summary"></div>
+      <div class="note" id="conNote"></div>
+    </div>
+
+    <div class="toolbar">
+      <span class="lbl">/t:</span>
+      <span class="seg">
+        <button class="tsw on" data-t="w">w 寫入</button>
+        <button class="tsw" data-t="c">c 建立</button>
+        <button class="tsw" data-t="a">a 存取</button>
+      </span>
+      <button id="btnA">移除 /a 參數</button>
+      <button id="btnSort">改用 /on（依名稱）</button>
+      <button id="btnOpen" disabled>檔案詳細資料</button>
+      <span class="spacer"></span>
+      <button id="btnFlag" class="flag" disabled>標記為可疑</button>
+      <button id="btnClear" class="clear" disabled>標記為正常</button>
+      <button id="btnCheck">檢查作答</button>
+    </div>
+    <div class="toolbar" style="border-top:0;padding-top:0">
+      <span class="hint" id="hint">點選一列查看。/q 顯示的擁有者是「建立這個檔案的人」——這一欄常常比時間更會說話。</span>
+    </div>
+  </div>
+
+  <div class="report">
+    <h2>案情</h2>
+    <p>2026 年 7 月 15 日上午，外部資安廠商通報：貴公司對外的付款閘道網站 <code>paygate</code> 疑似被植入後門，並提供了一個網址路徑作為佐證。你被派到 DMZ 的 WEB-DMZ-04 做初步確認。</p>
+    <p>這套付款閘道是 2020 年 3 月由資訊處的 it.deploy 部署上線的舊系統，之後除了設定調整以外幾乎沒有再動過。網站以 IIS 執行，應用程式集區帳號是 <code>IIS APPPOOL\PayGatePool</code>。</p>
+    <p>你在程式目錄下了這道指令：</p>
+    <table class="ref">
+      <thead><tr><th style="width:90px">參數</th><th>作用</th></tr></thead>
+      <tbody>
+        <tr><td class="m">/a</td><td>顯示所有檔案，包含隱藏（H）與系統（S）屬性的檔案</td></tr>
+        <tr><td class="m">/o-d</td><td>依日期排序，<code>-</code> 表示反向，也就是<strong>最新的排最上面</strong></td></tr>
+        <tr><td class="m">/t:w</td><td>時間欄位取「最後寫入時間」（可改成 <code>c</code> 建立、<code>a</code> 存取）</td></tr>
+        <tr><td class="m">/q</td><td>顯示檔案<strong>擁有者</strong></td></tr>
+      </tbody>
+    </table>
+
+    <h2 class="again">你的任務</h2>
+    <ol>
+      <li>逐項判讀 17 個項目，標記「可疑」或「正常」。</li>
+      <li>整個目錄大多是 2020 年 3 月的檔案。把 2026 年的項目挑出來——其中有兩個是<em>正常</em>的，說明理由。</li>
+      <li>看 <code>/q</code> 的擁有者欄。哪些檔案的擁有者「不該是那個人」？為什麼一個網站服務帳號能在程式目錄裡建立檔案，本身就是一個發現？</li>
+      <li>把 <code>/t:w</code> 切成 <code>/t:c</code>。有一個檔案會從清單中段跳到最上面。它是哪一個？寫入時間與建立時間的關係為什麼不可能？</li>
+      <li>按「移除 /a 參數」。少了哪幾個項目？如果你一開始就打成 <code>dir /o-d</code>，你的報告會漏掉什麼？</li>
+      <li>按「改用 /on」。同一批檔案換個排序之後，你還看得出異常嗎？說明排序方式如何影響你「看得見」什麼。</li>
+      <li>依據以上，寫出攻擊者落地檔案的時間順序，並指出你會優先送去做深入分析的是哪一個。</li>
+    </ol>
+    <div class="score" id="score">已標記 0 / 17　　可疑 0　　正常 0</div>
+    <div class="verdict" id="verdict"></div>
+  </div>
+
+  <footer>
+    <b>合成資料，僅供教學。</b>主機名稱、帳號、路徑、檔名與時間均為虛構；
+    網域取自 RFC 2606 保留名稱。此頁面不含任何可執行的攻擊程式碼，不執行任何命令，也不會對外發出請求。
+  </footer>
+</div>
+
+<div class="modal-bg" id="modal" role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
+  <div class="dlg bevel-out">
+    <div class="titlebar">
+      <span id="dlgTitle">檔案詳細資料</span>
+      <span class="btns"><button id="btnX" style="padding:0 7px;font-size:11px">×</button></span>
+    </div>
+    <div class="dlg-body">
+      <div class="kv bevel-in" id="kv"></div>
+      <div class="toolbar" style="padding-left:0;border-top:0">
+        <button id="btnStreams">dir /r（替代資料串流）</button>
+        <button id="btnExtra">補充查驗（雜湊・簽章）</button>
+      </div>
+      <div class="out" id="outS"></div>
+      <div class="out" id="outE"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var POOL = "IIS APPPOOL\\PayGatePool",
+      DEP  = "CORP\\it.deploy",
+      SVC  = "CORP\\svc_paygate",
+      ADM  = "BUILTIN\\Administrators";
+
+  /* w/c/a = 寫入／建立／存取時間；hs = 需要 /a 才看得到 */
+  var F = [
+    {n:"01",name:"logs",dir:1,size:0,own:SVC,
+     w:"2026/07/15 09:12",c:"2020/03/14 10:23",a:"2026/07/15 11:26"},
+
+    {n:"02",name:"paygate-20260715.log",size:1204880,own:POOL,
+     w:"2026/07/15 09:11",c:"2026/07/15 00:00",a:"2026/07/15 11:26"},
+
+    {n:"03",name:"update.exe",size:58368,own:POOL,
+     w:"2026/07/12 03:47",c:"2026/07/12 03:47",a:"2026/07/15 11:26",
+     zone:"[ZoneTransfer]\nZoneId=3\nHostUrl=http://cdn-pkg.example.net/u.bin",
+     hash:"SHA-256  3f9a...c41d",sig:"※ 未簽署"},
+
+    {n:"04",name:"run.bat",size:1204,own:POOL,
+     w:"2026/07/12 03:45",c:"2026/07/12 03:45",a:"2026/07/15 11:26",
+     hash:"SHA-256  8b12...77e0",sig:"（純文字檔，不適用）"},
+
+    {n:"05",name:"x64.dll",size:402120,own:POOL,hs:1,attr:"AHS",
+     w:"2026/07/11 23:02",c:"2026/07/11 23:02",a:"2026/07/15 11:26",
+     hash:"SHA-256  d0e5...1a93",sig:"※ 未簽署"},
+
+    {n:"06",name:"web.config",size:3918,own:DEP,
+     w:"2026/05/20 14:33",c:"2020/03/14 10:22",a:"2026/07/15 11:26",
+     note:"變更單 CHG-2026-0518（TLS 設定調整）"},
+
+    {n:"07",name:"archive",dir:1,size:0,own:DEP,
+     w:"2021/08/02 16:40",c:"2021/08/02 16:40",a:"2026/07/15 11:26"},
+
+    {n:"08",name:"cache.dat",size:9860,own:POOL,
+     w:"2021/06/11 02:00",c:"2020/03/20 08:14",a:"2026/07/15 11:26"},
+
+    {n:"09",name:"PayGate.Core.dll",size:1842176,own:DEP,
+     w:"2020/03/14 10:22",c:"2020/03/14 10:22",a:"2026/07/15 11:26",
+     hash:"SHA-256  61c7...9b40",sig:"已驗證：PayGate Systems Ltd."},
+
+    {n:"10",name:"PayGate.Web.dll",size:986624,own:DEP,
+     w:"2020/03/14 10:22",c:"2020/03/14 10:22",a:"2026/07/15 11:26",
+     hash:"SHA-256  a45e...2277",sig:"已驗證：PayGate Systems Ltd."},
+
+    {n:"11",name:"PayGate.Data.dll",size:138752,own:ADM,
+     w:"2020/03/14 10:22",c:"2026/07/11 23:14",a:"2026/07/15 11:26",
+     hash:"SHA-256  ee31...5c08",sig:"※ 未簽署"},
+
+    {n:"12",name:"Newtonsoft.Json.dll",size:695952,own:DEP,
+     w:"2020/03/14 10:22",c:"2020/03/14 10:22",a:"2026/07/15 11:26",
+     hash:"SHA-256  7d90...b1f2",sig:"已驗證：Newtonsoft"},
+
+    {n:"13",name:"log4net.dll",size:212480,own:DEP,
+     w:"2020/03/14 10:22",c:"2020/03/14 10:22",a:"2026/07/15 11:26",
+     hash:"SHA-256  c118...44a6",sig:"已驗證：The Apache Software Foundation"},
+
+    {n:"14",name:"PayGate.exe",size:45056,own:DEP,
+     w:"2020/03/14 10:21",c:"2020/03/14 10:21",a:"2026/07/15 11:26",
+     hash:"SHA-256  02fd...9e11",sig:"已驗證：PayGate Systems Ltd."},
+
+    {n:"15",name:"setup.log",size:22016,own:DEP,
+     w:"2020/03/14 10:19",c:"2020/03/14 09:58",a:"2026/07/15 11:26"},
+
+    {n:"16",name:"~$deploy.tmp",size:1024,own:DEP,hs:1,attr:"AH",
+     w:"2020/03/14 10:25",c:"2020/03/14 10:25",a:"2026/07/15 11:26"},
+
+    {n:"17",name:"readme.txt",size:9860,own:DEP,
+     w:"2020/03/14 09:58",c:"2020/03/14 09:58",a:"2026/07/15 11:26"}
+  ];
+
+  var SID = {};
+  SID[POOL] = "S-1-5-82-3006700770-424185619-1745488364-794895919-4004696415";
+  SID[DEP]  = "S-1-5-21-1844237615-1957994488-1801674531-1108";
+  SID[SVC]  = "S-1-5-21-1844237615-1957994488-1801674531-1219";
+  SID[ADM]  = "S-1-5-32-544";
+
+  var KEY = {
+    "01":{bad:0,why:"應用程式的記錄檔目錄，擁有者是服務帳號 svc_paygate。目錄建立於 2020 年部署當下，寫入時間會隨著裡面的檔案更新而變動，所以顯示 2026 —— <b>目錄的時間戳反映的是「最近有東西寫進去」，不是目錄本身被改</b>。"},
+    "02":{bad:0,why:"陷阱題。今天的應用程式記錄檔：時間是 2026 年最新、擁有者又是網站服務帳號 —— 兩個「警訊」全中，但這正是它應該有的樣子。網站寫自己的 log 天經地義。判斷關鍵是<b>位置與用途是否相符</b>：log 檔在 bin 目錄下雖然不理想，但它是 .log、是文字、名稱帶日期、每天一個。"},
+    "03":{bad:1,why:"2026/07/12 03:47 落地，擁有者是 <b>IIS APPPOOL\\PayGatePool</b> —— 這是網站的應用程式集區帳號。網站服務帳號會建立 .log、.tmp，<b>不會建立 .exe</b>。它能寫進 bin 目錄本身就代表這個目錄的權限設定有問題（正常應該只有部署帳號可寫）。檔名 update.exe 是通用偽裝名。dir /r 還看得到 :Zone.Identifier 資料流，ZoneId=3 代表這個檔案是<b>從網際網路下載</b>的，HostUrl 直接留下了來源。"},
+    "04":{bad:1,why:"與 update.exe 相差兩分鐘、同一個服務帳號建立的批次檔。1,204 位元組的 .bat 出現在程式目錄，而且沒有任何部署紀錄。順序是先有 run.bat（03:45）再有 update.exe（03:47）—— 這個先後有意義，通常代表下載器先落地、再拉主體。"},
+    "05":{bad:1,why:"最早落地的一個（07/11 23:02），而且加了<b>隱藏＋系統屬性</b>，不下 /a 就看不到。名字 x64.dll 刻意做得像編譯產物。同樣是服務帳號建立、未簽署。屬性被刻意設定這件事本身就是意圖的證據 —— 正常安裝程式不會把自己的 DLL 藏起來。"},
+    "06":{bad:0,why:"陷阱題。2026/05/20 的寫入時間確實比周圍的 2020 新，但：擁有者是部署帳號 it.deploy、有對應的變更單 CHG-2026-0518，而且<b>建立時間仍是 2020/03/14</b> —— 建立時間比寫入時間早，代表這是原本就存在的檔案被修改，不是新放進來的檔案。這是判斷「改」與「放」最直接的方法。"},
+    "07":{bad:0,why:"2021 年建立的封存目錄，擁有者是部署帳號，時間也對得上當年的版本更新。"},
+    "08":{bad:0,why:"陷阱題。擁有者是網站服務帳號 —— 與那三個惡意檔案相同。但它是 .dat 快取資料檔、建立於 2020 年部署後幾天、最後寫入停在 2021 年。<b>服務帳號擁有資料檔是正常的，擁有可執行檔才是問題</b>。不能只憑擁有者欄一刀切。"},
+    "09":{bad:0,why:"2020 年部署的應用程式主體，簽章有效，時間與其他同批檔案一致。"},
+    "10":{bad:0,why:"同上，同一批部署產物。"},
+    "11":{bad:1,why:"<b>本實驗的核心題：時間戳竄改（timestomping，T1070.006）。</b>寫入時間被改成 2020/03/14 10:22，與旁邊那幾個部署檔案一模一樣，混在中段完全看不出來。三個破綻：（一）切到 /t:c 之後它會跳到最上面，<b>建立時間是 2026/07/11 23:14</b>；（二）寫入時間早於建立時間，這在正常檔案上不可能發生 —— 檔案不可能在被建立之前就被寫入；（三）擁有者是 BUILTIN\\Administrators，而同批部署檔案全部是 CORP\\it.deploy，代表它不是那次部署放進來的。另外它未簽署，而同批的其他 PayGate.*.dll 都有簽章。<b>攻擊者通常只改寫入時間，不改建立時間，因為改寫入時間用內建 API 就做得到。</b>"},
+    "12":{bad:0,why:"第三方 JSON 函式庫，簽章有效，屬於 2020 年那批。"},
+    "13":{bad:0,why:"第三方記錄檔函式庫，同上。"},
+    "14":{bad:0,why:"應用程式主執行檔，2020 年部署，簽章有效。"},
+    "15":{bad:0,why:"2020 年的安裝紀錄檔。建立時間 09:58、寫入時間 10:19，安裝過程中持續被追加寫入，順序合理。"},
+    "16":{bad:0,why:"陷阱題。隱藏屬性、不下 /a 看不到 —— 與 x64.dll 同一個特徵。但它是 2020/03/14 部署當下留下的暫存檔，擁有者是部署帳號，<b>隱藏屬性本身不是罪</b>，Office 與各種安裝程式都會產生這種殘留。要看的是「誰、什麼時候、藏了什麼東西」。"},
+    "17":{bad:0,why:"2020 年的說明文件，最早的一個檔案。"}
+  };
+
+  var marks = {}, sel = null, tf = "w", showAll = true, byName = false;
+
+  var $ = function(id){ return document.getElementById(id); };
+  function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+  function byNo(n){ for(var i=0;i<F.length;i++){ if(F[i].n===n) return F[i]; } return null; }
+  function comma(x){ return x.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ","); }
+  function pad(s, w){ s = String(s); while(s.length < w) s += " "; return s; }
+
+  function cmdText(){
+    return "dir " + (showAll ? "/a " : "") + (byName ? "/on " : "/o-d ") + "/t:" + tf + " /q";
+  }
+
+  function view(){
+    var l = F.filter(function(f){ return showAll || !f.hs; });
+    l = l.slice().sort(function(a, b){
+      if(byName) return a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1;
+      return a[tf] < b[tf] ? 1 : -1;     // /o-d：最新在最上面
+    });
+    return l;
+  }
+
+  function render(){
+    $("cmd").textContent = cmdText();
+    var tb = $("rows"); tb.innerHTML = "";
+    var list = view(), nd = 0, nf = 0, bytes = 0;
+
+    list.forEach(function(f){
+      var tr = document.createElement("tr");
+      tr.className = "row" + (sel === f.n ? " sel" : "");
+      tr.tabIndex = 0;
+      tr.setAttribute("data-n", f.n);
+      var t = f[tf], d = t.slice(0, 10), hm = t.slice(11);
+      var tag = marks[f.n] === "f" ? '<span class="tag f">可疑</span>'
+              : marks[f.n] === "c" ? '<span class="tag c">正常</span>' : "";
+      tr.innerHTML =
+        '<td class="dt">' + d + '</td>' +
+        '<td class="tm">' + hm + '</td>' +
+        '<td class="sz">' + (f.dir ? "&lt;DIR&gt;" : comma(f.size)) + '</td>' +
+        '<td class="ow">' + esc(f.own) + '</td>' +
+        '<td>' + esc(f.name) + '</td>' +
+        '<td class="mk">' + tag + '</td>';
+      tb.appendChild(tr);
+      if(f.dir){ nd++; } else { nf++; bytes += f.size; }
+    });
+
+    $("summary").textContent =
+      "              " + nf + " 個檔案     " + comma(bytes) + " 位元組\n"
+      + "              " + nd + " 個目錄  38,214,533,120 位元組可用";
+
+    $("conNote").textContent = tf === "a"
+      ? "（提示：這台主機的 NtfsDisableLastAccessUpdate 為預設值，存取時間大多只反映最近一次全碟掃描，參考價值低。）"
+      : "";
+
+    var f2 = 0, c2 = 0;
+    Object.keys(marks).forEach(function(k){ marks[k] === "f" ? f2++ : c2++; });
+    $("score").textContent = "已標記 " + (f2 + c2) + " / 17　　可疑 " + f2 + "　　正常 " + c2;
+    ["btnOpen","btnFlag","btnClear"].forEach(function(id){ $(id).disabled = !sel; });
+  }
+
+  function select(n){
+    sel = n; render();
+    var f = byNo(n);
+    $("hint").textContent = "已選取 " + f.name + "，擁有者 " + f.own
+      + "。三個時間戳要一起看：用上面的 /t: 切換，或直接開檔案詳細資料。";
+  }
+
+  $("rows").addEventListener("click", function(e){
+    var tr = e.target.closest("tr[data-n]"); if(tr) select(tr.getAttribute("data-n"));
+  });
+  $("rows").addEventListener("dblclick", function(e){
+    var tr = e.target.closest("tr[data-n]");
+    if(tr){ select(tr.getAttribute("data-n")); openDlg(); }
+  });
+  $("rows").addEventListener("keydown", function(e){
+    var tr = e.target.closest("tr[data-n]");
+    if(tr && (e.key === "Enter" || e.key === " ")){ e.preventDefault(); select(tr.getAttribute("data-n")); openDlg(); }
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll(".tsw"), function(b){
+    b.addEventListener("click", function(){
+      Array.prototype.forEach.call(document.querySelectorAll(".tsw"), function(x){ x.className = "tsw"; });
+      b.className = "tsw on";
+      tf = b.getAttribute("data-t");
+      $("hint").textContent =
+        tf === "w" ? "最後寫入時間：檔案內容最後一次被改動的時間。這是最常被竄改的一個。"
+      : tf === "c" ? "建立時間：檔案在這個磁碟區上被建立的時間。有沒有哪一列的位置跟剛才差很多？"
+      :              "最後存取時間：現代 Windows 預設不即時更新，而且防毒與備份都會把它推到最新。"; 
+      render();
+    });
+  });
+
+  $("btnA").addEventListener("click", function(){
+    showAll = !showAll;
+    this.textContent = showAll ? "移除 /a 參數" : "加回 /a 參數";
+    $("hint").textContent = showAll
+      ? "加回 /a，隱藏與系統屬性的項目又出現了。"
+      : "這是沒有下 /a 的畫面 —— 少了兩個項目。其中一個是無害的殘留，另一個不是。";
+    render();
+  });
+
+  $("btnSort").addEventListener("click", function(){
+    byName = !byName;
+    this.textContent = byName ? "改回 /o-d（依日期）" : "改用 /on（依名稱）";
+    $("hint").textContent = byName
+      ? "依名稱排序之後，2026 年的檔案被打散到清單各處。異常還在，但你不再「一眼」看得到 —— 排序方式決定了哪些模式會浮現。"
+      : "回到依日期反向排序，最新的在最上面。";
+    render();
+  });
+
+  $("btnFlag").addEventListener("click", function(){ marks[sel] = "f"; render(); });
+  $("btnClear").addEventListener("click", function(){ marks[sel] = "c"; render(); });
+
+  /* ---- 詳細資料 ---- */
+  function kv(k, v, warn){
+    return '<span class="k">' + k + '</span><span class="v' + (warn ? " warn" : "") + '">' + esc(v) + '</span>';
+  }
+  function openDlg(){
+    if(!sel) return;
+    var f = byNo(sel);
+    $("dlgTitle").textContent = f.name + " — 檔案詳細資料";
+    var stomped = f.w < f.c;
+    $("kv").innerHTML =
+      kv("完整路徑", "C:\\inetpub\\wwwroot\\paygate\\bin\\" + f.name) +
+      kv("類型", f.dir ? "目錄" : "檔案") +
+      kv("大小", f.dir ? "—" : comma(f.size) + " 位元組") +
+      kv("屬性", f.attr || (f.dir ? "D" : "A"), !!f.hs) +
+      kv("建立時間 (C)", f.c, f.c.indexOf("2026/07/1") === 0) +
+      kv("寫入時間 (W)", f.w, stomped) +
+      kv("存取時間 (A)", f.a) +
+      (stomped ? kv("※ 時序檢查", "寫入時間早於建立時間", true) : "") +
+      kv("擁有者", f.own, f.own === "IIS APPPOOL\\PayGatePool" || f.own === "BUILTIN\\Administrators") +
+      kv("擁有者 SID", SID[f.own] || "—") +
+      (f.note ? kv("備註", f.note) : "");
+    $("outS").className = "out";
+    $("outE").className = "out";
+    $("btnExtra").disabled = !!f.dir;
+    $("modal").classList.add("open");
+    $("btnX").focus();
+  }
+  function closeDlg(){ $("modal").classList.remove("open"); }
+
+  $("btnOpen").addEventListener("click", openDlg);
+  $("btnX").addEventListener("click", closeDlg);
+  $("modal").addEventListener("click", function(e){ if(e.target === this) closeDlg(); });
+  document.addEventListener("keydown", function(e){ if(e.key === "Escape") closeDlg(); });
+
+  $("btnStreams").addEventListener("click", function(){
+    var f = byNo(sel);
+    var txt = "C:\\&gt;dir /r " + f.name + "\n\n";
+    if(f.zone){
+      txt += "  " + comma(f.size) + " " + f.name + "\n"
+           + "        <span class=\"warnc\">26 " + f.name + ":Zone.Identifier:$DATA</span>\n\n"
+           + "  串流內容：\n  " + esc(f.zone).replace(/\n/g, "\n  ");
+    } else {
+      txt += "  " + (f.dir ? "&lt;DIR&gt;" : comma(f.size)) + " " + f.name + "\n\n  （無替代資料串流）";
+    }
+    $("outS").innerHTML = txt;
+    $("outS").className = "out show";
+  });
+
+  $("btnExtra").addEventListener("click", function(){
+    var f = byNo(sel);
+    if(!f.hash && !f.sig){
+      $("outE").innerHTML = "（此項目為資料檔或目錄，未進行雜湊與簽章查驗）";
+    } else {
+      var bad = (f.sig || "").indexOf("※") === 0;
+      $("outE").innerHTML =
+        "PS&gt; Get-FileHash / Get-AuthenticodeSignature\n"
+        + "  雜湊    " + esc(f.hash || "—") + "\n"
+        + "  簽章    " + (bad ? '<span class="warnc">' + esc(f.sig) + "</span>" : esc(f.sig || "—"));
+    }
+    $("outE").className = "out show";
+  });
+
+  /* ---- 對答案 ---- */
+  $("btnCheck").addEventListener("click", function(){
+    var v = $("verdict"), html = "", right = 0, done = 0;
+    F.forEach(function(f){
+      var mine = marks[f.n], truth = KEY[f.n].bad ? "f" : "c", ok = mine === truth;
+      if(mine) done++;
+      if(ok) right++;
+      html += '<div class="vrow ' + (ok ? "ok" : (mine ? "no" : "")) + '">'
+            + '<span class="vk">' + (mine ? (ok ? "\u2713" : "\u2717") : "\u2013") + " " + f.n + '</span>'
+            + '<span class="vv"><b>' + (KEY[f.n].bad ? "可疑" : "正常") + " " + esc(f.name)
+            + "</b> — " + KEY[f.n].why + '</span></div>';
+    });
+    var head = "<p><b>" + right + " / 17 正確</b>（已作答 " + done + " 筆）。攻擊者落地的順序是："
+      + "<code>x64.dll</code>（07/11 23:02，隱藏＋系統）→ <code>PayGate.Data.dll</code>（07/11 23:14，時間戳被改成 2020）"
+      + " → <code>run.bat</code>（07/12 03:45）→ <code>update.exe</code>（07/12 03:47）。"
+      + "優先送深入分析的是 <code>update.exe</code>：它有 Zone.Identifier，直接留下了下載來源網址。</p>"
+      + "<p><b>三個判準，各有各的盲點。</b></p><ul>"
+      + "<li><b>時間</b>抓得到 03、04、05，抓不到 11（被改過），而且會誤傷 02 與 06。</li>"
+      + "<li><b>擁有者</b>抓得到 03、04、05，也抓得到 11（BUILTIN\\Administrators 與同批不一致），但會誤傷 02 與 08。</li>"
+      + "<li><b>/a 隱藏屬性</b>抓得到 05，但會誤傷 16。</li>"
+      + "</ul><p>沒有任何一個判準單獨可用。11 號要靠<b>建立時間與寫入時間互相矛盾</b>才抓得到 —— 這是本實驗最想留下的一招："
+      + "<em>檔案不可能在被建立之前就被寫入。當 W &lt; C，就是有人動過時間戳。</em></p>"
+      + "<p><b>還有一個結構性的發現不在標記題裡：</b>為什麼網站的應用程式集區帳號可以在 bin 目錄建立檔案？"
+      + "正常設定下這個目錄對 IIS APPPOOL 帳號應該只有讀取與執行權限。這個權限設定錯誤，才是攻擊者能把檔案放進來的根本原因 —— "
+      + "清除檔案不會解決它，改 ACL 才會。</p>";
+    v.innerHTML = "<h2>判讀對照</h2>" + head + html;
+    v.className = "verdict show";
+    v.scrollIntoView({behavior:"smooth",block:"nearest"});
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
