@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>事件記錄檔鑑識實驗 — 4625／4624 暴力破解與內網移動</title>
+<style>
+  :root{
+    --face:#ECE9E1;
+    --face-hi:#FFFFFF;
+    --face-lo:#9A958A;
+    --face-lo2:#6E6A61;
+    --pane:#FFFFFF;
+    --select:#10306B;
+    --ink:#1B1A17;
+    --ink-soft:#5A554B;
+    --tag-flag:#8C1D18;
+    --tag-clear:#1F5D3F;
+    --ui:Tahoma,Verdana,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
+    --mono:Consolas,"Courier New","Noto Sans Mono CJK TC",monospace;
+    --doc:Georgia,"Songti TC","Noto Serif TC",serif;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;padding:18px;background:#7A8393;
+    background-image:linear-gradient(180deg,#7A8393,#5E6675);
+    font-family:var(--ui);color:var(--ink);font-size:13px;line-height:1.5;
+  }
+  .wrap{max-width:1120px;margin:0 auto}
+
+  header.evidence{
+    background:var(--tag-flag);color:#F7EFE6;padding:14px 18px;border:2px solid #5D120F;
+    display:flex;flex-wrap:wrap;gap:6px 26px;align-items:baseline;
+  }
+  header.evidence h1{font-family:var(--doc);font-size:17px;font-weight:400;margin:0;letter-spacing:.02em}
+  header.evidence .meta{font-family:var(--mono);font-size:11px;opacity:.85}
+  header.evidence .meta b{font-weight:400;color:#F0C9C0}
+
+  .bevel-out{border-top:2px solid var(--face-hi);border-left:2px solid var(--face-hi);
+             border-right:2px solid var(--face-lo2);border-bottom:2px solid var(--face-lo2)}
+  .bevel-in{border-top:2px solid var(--face-lo2);border-left:2px solid var(--face-lo2);
+            border-right:2px solid var(--face-hi);border-bottom:2px solid var(--face-hi)}
+
+  .shell{background:var(--face);padding:3px;margin-top:14px}
+  .titlebar{background:linear-gradient(90deg,var(--select),#3B5C9E);color:#fff;
+            padding:3px 6px;font-size:12px;display:flex;justify-content:space-between;align-items:center}
+  .titlebar .btns{font-family:var(--mono);letter-spacing:2px;opacity:.9}
+  .menubar{padding:3px 6px;font-size:12px;color:var(--ink-soft);border-bottom:1px solid var(--face-lo)}
+  .menubar span{margin-right:15px}
+  .menubar u{text-decoration:underline}
+
+  .cols{display:flex;gap:3px;padding:3px}
+  .tree{width:186px;flex:none;background:var(--pane);padding:6px 4px;font-size:12px;overflow:auto}
+  .tree div{padding:1px 4px;white-space:nowrap}
+  .tree .lv1{padding-left:4px}
+  .tree .lv2{padding-left:16px}
+  .tree .lv3{padding-left:30px}
+  .tree .cur{background:var(--select);color:#fff}
+  .tree .dim{color:var(--ink-soft)}
+  .main{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+
+  .listwrap{background:var(--pane);overflow:auto;max-height:330px}
+  table.ev{border-collapse:collapse;width:100%;font-size:12px;white-space:nowrap;min-width:820px}
+  table.ev th{
+    background:linear-gradient(180deg,#FDFDFC,#E7E4DC);font-weight:400;text-align:left;
+    padding:4px 8px;border-right:1px solid #C9C5BB;border-bottom:1px solid #C9C5BB;
+    position:sticky;top:0;z-index:2;font-size:11.5px;
+  }
+  table.ev td{padding:2px 8px;border-bottom:1px solid #F2F1EC}
+  table.ev tr.row{cursor:pointer}
+  table.ev tr.row:hover td{background:#F0F3F8}
+  table.ev tr.row.sel td{background:var(--select);color:#fff}
+  .kw-f{color:#8C1D18}
+  .kw-s{color:#3A362E}
+  tr.sel .kw-f,tr.sel .kw-s{color:#fff}
+  .mono{font-family:var(--mono);font-size:11.5px}
+  .tag{display:inline-block;font-size:10px;padding:0 5px;border-radius:1px;color:#fff;
+       font-family:var(--ui);vertical-align:1px}
+  .tag.f{background:#B32E27}
+  .tag.c{background:#2E7A55}
+
+  .detail{background:var(--pane);padding:8px 10px;min-height:190px;overflow:auto;max-height:300px}
+  .dtabs{display:flex;gap:2px;margin-bottom:6px}
+  .dtab{font-size:11.5px;padding:2px 12px;background:#DEDACF;color:var(--ink-soft);
+        border-top:1px solid var(--face-hi);border-left:1px solid var(--face-hi);
+        border-right:1px solid var(--face-lo2)}
+  .dtab.on{background:var(--pane);color:var(--ink);border-bottom:1px solid var(--pane)}
+  pre.evtxt{font-family:var(--mono);font-size:11.5px;margin:0;white-space:pre-wrap;line-height:1.55}
+  pre.evtxt b{font-weight:400;background:#FFF3C4}
+  .foot{font-size:11px;color:var(--ink-soft);border-top:1px solid #EDEBE4;margin-top:7px;padding-top:5px}
+
+  .toolbar{padding:6px;display:flex;flex-wrap:wrap;gap:6px;align-items:center;border-top:1px solid var(--face-lo)}
+  .seg{display:flex}
+  .seg button{border-right-width:1px}
+  .seg button.on{background:#CFD8E8}
+  button{
+    font-family:var(--ui);font-size:12px;padding:4px 11px;background:var(--face);
+    border-top:2px solid var(--face-hi);border-left:2px solid var(--face-hi);
+    border-right:2px solid var(--face-lo2);border-bottom:2px solid var(--face-lo2);
+    cursor:pointer;color:var(--ink);
+  }
+  button:active{border-top-color:var(--face-lo2);border-left-color:var(--face-lo2);
+                border-right-color:var(--face-hi);border-bottom-color:var(--face-hi)}
+  button:focus-visible{outline:2px dotted var(--ink);outline-offset:-6px}
+  button[disabled]{color:var(--face-lo);cursor:default}
+  button.flag{background:#F3DEDC}
+  button.clear{background:#DDEAE1}
+  .spacer{flex:1}
+  .hint{font-size:11px;color:var(--ink-soft)}
+  .lbl{font-size:11px;color:var(--ink-soft)}
+
+  .modal-bg{position:fixed;inset:0;background:rgba(20,22,28,.45);display:none;
+            align-items:center;justify-content:center;padding:16px;z-index:20}
+  .modal-bg.open{display:flex}
+  .dlg{background:var(--face);padding:3px;width:min(760px,100%);max-height:90vh;overflow:auto}
+  .dlg-body{padding:12px 14px;background:var(--pane)}
+  table.sum{border-collapse:collapse;width:100%;font-size:12px;margin-bottom:12px}
+  table.sum th{text-align:left;font-weight:400;background:var(--face);padding:3px 7px;border:1px solid var(--face-lo);font-size:11.5px}
+  table.sum td{padding:3px 7px;border:1px solid #E4E1D8;font-family:var(--mono);font-size:11.5px}
+  table.sum td.n{text-align:right}
+  table.sum tr.hot td{background:#FBF0EF;color:#8C1D18}
+  .sumh{font-size:12px;margin:0 0 5px;color:var(--ink-soft)}
+
+  .report{background:#FBFAF6;margin-top:14px;padding:16px 20px;font-family:var(--doc);font-size:13.5px;line-height:1.65}
+  .report h2{font-size:15px;font-weight:400;margin:0 0 8px;letter-spacing:.03em;
+             border-bottom:1px solid var(--face-lo);padding-bottom:5px}
+  .report h2.again{margin-top:16px}
+  .report p{margin:0 0 9px}
+  .report ol,.report ul{margin:0;padding-left:20px}
+  .report li{margin-bottom:6px}
+  .report code{font-family:var(--mono);font-size:12px;background:var(--face);padding:0 3px}
+  table.ref{border-collapse:collapse;width:100%;font-size:12px;margin-top:4px}
+  table.ref th{text-align:left;font-weight:400;background:var(--face);padding:3px 7px;border:1px solid var(--face-lo)}
+  table.ref td{padding:3px 7px;border:1px solid #E4E1D8;vertical-align:top}
+  table.ref td.m{font-family:var(--mono);font-size:11.5px;white-space:nowrap}
+  .score{font-family:var(--mono);font-size:12px;background:var(--face);padding:9px 12px;margin-top:10px;white-space:pre-wrap}
+  .verdict{display:none;margin-top:12px;border-top:1px dashed var(--face-lo);padding-top:12px}
+  .verdict.show{display:block}
+  .vrow{display:flex;gap:9px;padding:4px 0;border-bottom:1px solid #EFEDE6;align-items:baseline}
+  .vrow .vk{font-family:var(--mono);font-size:12px;min-width:34px}
+  .vrow .vv{font-size:12.5px}
+  .vrow.ok .vk{color:var(--tag-clear)}
+  .vrow.no .vk{color:var(--tag-flag)}
+
+  footer{color:#DDE1E8;font-size:11px;margin-top:14px;text-align:center;line-height:1.7}
+  footer b{color:#fff;font-weight:400}
+
+  @media (max-width:820px){
+    body{padding:8px}
+    .tree{display:none}
+    .listwrap{max-height:280px}
+  }
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="evidence">
+    <h1>證物 EV-2026-0422-14 — 伺服器安全性記錄檔（轉送事件）</h1>
+    <div class="meta">
+      收集器 <b>SRV-WEC-01</b>・來源主機 <b>SRV-FS-02 / SRV-APP-01 / DC01</b>・
+      區間 <b>2026-04-22 08:00 — 14:00 (UTC+8)</b>
+    </div>
+  </header>
+
+  <div class="shell bevel-out">
+    <div class="titlebar">
+      <span>事件檢視器 — 轉送的事件（Forwarded Events）</span>
+      <span class="btns">_ □ ×</span>
+    </div>
+    <div class="menubar">
+      <span><u>F</u>檔案</span><span><u>A</u>動作</span><span><u>V</u>檢視</span><span><u>H</u>說明</span>
+    </div>
+
+    <div class="cols">
+      <div class="tree bevel-in">
+        <div class="lv1">事件檢視器 (本機)</div>
+        <div class="lv2 dim">自訂檢視</div>
+        <div class="lv2">Windows 記錄</div>
+        <div class="lv3 dim">應用程式</div>
+        <div class="lv3 dim">安全性</div>
+        <div class="lv3 dim">設定</div>
+        <div class="lv3 dim">系統</div>
+        <div class="lv3 cur">轉送的事件</div>
+        <div class="lv2 dim">應用程式及服務記錄檔</div>
+        <div class="lv2 dim">訂閱</div>
+      </div>
+
+      <div class="main">
+        <div class="listwrap bevel-in">
+          <table class="ev">
+            <thead><tr>
+              <th style="width:78px">關鍵字</th>
+              <th style="width:150px">日期和時間</th>
+              <th style="width:118px">來源</th>
+              <th style="width:78px">事件識別碼</th>
+              <th style="width:88px">工作類別</th>
+              <th style="width:104px">電腦</th>
+              <th>帳戶</th>
+              <th style="width:52px"></th>
+            </tr></thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+
+        <div class="detail bevel-in">
+          <div class="dtabs"><span class="dtab on">一般</span><span class="dtab">詳細資料</span></div>
+          <pre class="evtxt" id="dtl">（尚未選取事件。點選上方任一列。）</pre>
+          <div class="foot" id="dfoot"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <span class="lbl">篩選：</span>
+      <span class="seg">
+        <button class="flt on" data-f="all">全部</button>
+        <button class="flt" data-f="4625">4625</button>
+        <button class="flt" data-f="4624">4624</button>
+        <button class="flt" data-f="other">4672／4648</button>
+      </span>
+      <button id="btnOrder">依時間正序</button>
+      <button id="btnSum">彙總統計</button>
+      <span class="spacer"></span>
+      <button id="btnFlag" class="flag" disabled>標記為可疑</button>
+      <button id="btnClear" class="clear" disabled>標記為正常</button>
+      <button id="btnCheck">檢查作答</button>
+    </div>
+    <div class="toolbar" style="border-top:0;padding-top:0">
+      <span class="hint" id="hint">事件檢視器預設把最新的排在最上面。要看懂一條攻擊鏈，你得先把它翻成正序。</span>
+    </div>
+  </div>
+
+  <div class="report">
+    <h2>案情</h2>
+    <p>同一天上午，財會部門的 WKS-TPE-0932（172.20.14.61）因為釣魚郵件的巨集被植入後門。中午過後，SOC 收到網域帳戶鎖定的告警，於是把三台伺服器的安全性記錄檔調出來看。</p>
+    <p>你要回答的是：<em>攻擊者有沒有從那台工作站往內網打？打到哪裡了？用了誰的帳號？</em></p>
+
+    <h2 class="again">附件 A — 登入類型（Logon Type）對照</h2>
+    <table class="ref">
+      <thead><tr><th style="width:60px">類型</th><th style="width:150px">名稱</th><th>意義與判讀重點</th></tr></thead>
+      <tbody>
+        <tr><td class="m">2</td><td>Interactive</td><td>坐在機器前面登入（含 KVM）</td></tr>
+        <tr><td class="m">3</td><td>Network</td><td>網路存取，最常見：SMB 檔案共用、遠端 WMI。<strong>數量最多、噪音最大</strong></td></tr>
+        <tr><td class="m">4</td><td>Batch</td><td>排程工作</td></tr>
+        <tr><td class="m">5</td><td>Service</td><td>服務啟動。來源位址通常是 <code>-</code>（本機）</td></tr>
+        <tr><td class="m">7</td><td>Unlock</td><td>解除螢幕鎖定</td></tr>
+        <tr><td class="m">8</td><td>NetworkCleartext</td><td>密碼以明文傳送（IIS 基本驗證等）</td></tr>
+        <tr><td class="m">9</td><td>NewCredentials</td><td><code>runas /netonly</code>，常見於橫向移動</td></tr>
+        <tr><td class="m">10</td><td><strong>RemoteInteractive</strong></td><td><strong>遠端桌面（RDP）。誰、從哪裡、在什麼時間，三者都要對得上</strong></td></tr>
+        <tr><td class="m">11</td><td>CachedInteractive</td><td>用快取認證登入（離線筆電）</td></tr>
+      </tbody>
+    </table>
+
+    <h2 class="again">附件 B — 4625 失敗狀態碼對照</h2>
+    <table class="ref">
+      <thead><tr><th style="width:120px">狀態／子狀態</th><th style="width:150px">意義</th><th>判讀重點</th></tr></thead>
+      <tbody>
+        <tr><td class="m">0xC000006A</td><td>密碼錯誤</td><td>帳號存在，只是密碼不對。<strong>暴力破解的主要訊號</strong></td></tr>
+        <tr><td class="m">0xC0000064</td><td>帳號不存在</td><td>對方在<strong>猜帳號</strong>。大量出現代表沒有先偵察就亂試</td></tr>
+        <tr><td class="m">0xC0000072</td><td>帳號已停用</td><td>常見於舊排程或離職帳號殘留，不一定是攻擊</td></tr>
+        <tr><td class="m">0xC0000234</td><td>帳號已鎖定</td><td>鎖定政策生效了。也代表破解已經進行一段時間</td></tr>
+        <tr><td class="m">0xC000006F</td><td>不在允許的登入時段</td><td>設定限制，通常是誤設</td></tr>
+        <tr><td class="m">0xC0000071</td><td>密碼已過期</td><td>設定問題</td></tr>
+      </tbody>
+    </table>
+
+    <h2 class="again">你的任務</h2>
+    <ol>
+      <li>逐筆判讀 29 筆事件，標記「可疑」或「正常」。</li>
+      <li>先按「彙總統計」。哪一個來源 IP 的失敗次數異常？失敗集中在哪些帳戶？</li>
+      <li>整份記錄裡有三筆 4625 與攻擊<em>無關</em>。分別說明它們為什麼無關。</li>
+      <li>找出「失敗很多次之後那一次成功」。它的登入類型是什麼？從哪裡來？為什麼那台機器不該用這個帳號連進伺服器？</li>
+      <li>登入類型 10 在這份記錄裡出現了四次，其中兩次正常、兩次不正常。列出四次，並說明你用什麼區分。</li>
+      <li>攻擊者用 <code>svc_backup</code> 進來，後面卻是用 <code>adm.chou</code> 往下一台移動。中間發生了什麼？哪一個事件識別碼記錄了這件事？</li>
+      <li>畫出這條路徑：起點 IP → 第一台伺服器 → 第二台 → 最後打到哪裡。並指出你會優先封鎖哪一個帳號。</li>
+    </ol>
+    <div class="score" id="score">已標記 0 / 29　　可疑 0　　正常 0</div>
+    <div class="verdict" id="verdict"></div>
+  </div>
+
+  <footer>
+    <b>合成資料，僅供教學。</b>主機名稱、帳號、IP 與時間均為虛構；
+    IP 取自 RFC 1918 保留網段。此頁面不含任何攻擊工具或程式碼，不執行任何命令，也不會對外發出請求。
+  </footer>
+</div>
+
+<div class="modal-bg" id="modal" role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
+  <div class="dlg bevel-out">
+    <div class="titlebar">
+      <span id="dlgTitle">彙總統計（區間 08:00 – 14:00）</span>
+      <span class="btns"><button id="btnX" style="padding:0 7px;font-size:11px">×</button></span>
+    </div>
+    <div class="dlg-body bevel-in" id="sumBody"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var FS = "SRV-FS-02", AP = "SRV-APP-01", DC = "DC01";
+  var ATK = "172.20.14.61", ITNET = "10.10.50.12", FSIP = "10.10.40.15", APIP = "10.10.41.22";
+
+  /* rep = 這一筆代表的實際事件數（記錄檔節錄時的摺疊筆數） */
+  var EV = [
+    {n:"01",t:"08:31:12",eid:4624,ok:1,pc:FS,acct:"NT AUTHORITY\\SYSTEM",lt:5,src:"-",ws:"-",
+     proc:"C:\\Windows\\System32\\services.exe"},
+
+    {n:"02",t:"08:52:14",eid:4625,pc:FS,acct:"CORP\\it.chang",lt:10,src:ITNET,ws:"WKS-IT-1120",
+     st:"0xC000006A",stn:"密碼錯誤"},
+
+    {n:"03",t:"08:52:41",eid:4624,ok:1,pc:FS,acct:"CORP\\it.chang",lt:10,src:ITNET,ws:"WKS-IT-1120",
+     lid:"0x3A91C4"},
+
+    {n:"04",t:"09:15:03",eid:4624,ok:1,pc:AP,acct:"CORP\\adm.chou",lt:10,src:ITNET,ws:"WKS-IT-1120",
+     lid:"0x4C2077"},
+
+    {n:"05",t:"09:15:03",eid:4672,ok:1,pc:AP,acct:"CORP\\adm.chou",lid:"0x4C2077",
+     priv:"SeSecurityPrivilege\nSeBackupPrivilege\nSeRestorePrivilege\nSeTakeOwnershipPrivilege\nSeDebugPrivilege"},
+
+    {n:"06",t:"10:00:07",eid:4624,ok:1,pc:FS,acct:"CORP\\SRV-APP-01$",lt:3,src:APIP,ws:AP,
+     lid:"0x51D330"},
+
+    {n:"07",t:"10:00:12",eid:4634,ok:1,pc:FS,acct:"CORP\\SRV-APP-01$",lt:3,lid:"0x51D330"},
+
+    {n:"08",t:"11:00:00",eid:4625,pc:FS,acct:"CORP\\svc_legacy",lt:3,src:"10.10.20.44",ws:"SRV-BKP-OLD",
+     st:"0xC0000072",stn:"帳號已停用",rep:6,
+     more:"備註：此事件自 2026-03-25 起每小時整點出現一次，來源固定為 SRV-BKP-OLD。"},
+
+    {n:"09",t:"12:30:11",eid:4624,ok:1,pc:FS,acct:"ANONYMOUS LOGON",lt:3,src:"10.10.40.9",ws:"-",
+     lid:"0x5A1188"},
+
+    {n:"10",t:"13:02:41",eid:4625,pc:FS,acct:"CORP\\j.wang",lt:3,src:ATK,ws:"WKS-TPE-0932",st:"0xC000006A",stn:"密碼錯誤"},
+    {n:"11",t:"13:02:43",eid:4625,pc:FS,acct:"CORP\\s.lin",lt:3,src:ATK,ws:"WKS-TPE-0932",st:"0xC000006A",stn:"密碼錯誤"},
+    {n:"12",t:"13:02:45",eid:4625,pc:FS,acct:"CORP\\m.kuo",lt:3,src:ATK,ws:"WKS-TPE-0932",st:"0xC000006A",stn:"密碼錯誤"},
+    {n:"13",t:"13:02:47",eid:4625,pc:FS,acct:"administrator",lt:3,src:ATK,ws:"WKS-TPE-0932",st:"0xC0000064",stn:"帳號不存在"},
+    {n:"14",t:"13:02:49",eid:4625,pc:FS,acct:"admin",lt:3,src:ATK,ws:"WKS-TPE-0932",st:"0xC0000064",stn:"帳號不存在"},
+    {n:"15",t:"13:02:51",eid:4625,pc:FS,acct:"CORP\\sqlsvc",lt:3,src:ATK,ws:"WKS-TPE-0932",st:"0xC000006A",stn:"密碼錯誤",
+     more:"備註：13:02:41–13:03:20 之間，同一來源共對 24 個不同帳戶各嘗試 1–2 次。"},
+
+    {n:"16",t:"13:05:00",eid:4624,ok:1,pc:FS,acct:"NT AUTHORITY\\SYSTEM",lt:5,src:"-",ws:"-",
+     proc:"C:\\Windows\\System32\\services.exe"},
+
+    {n:"17",t:"13:11:08",eid:4625,pc:FS,acct:"CORP\\svc_backup",lt:3,src:ATK,ws:"WKS-TPE-0932",st:"0xC000006A",stn:"密碼錯誤"},
+    {n:"18",t:"13:11:09",eid:4625,pc:FS,acct:"CORP\\svc_backup",lt:3,src:ATK,ws:"WKS-TPE-0932",st:"0xC000006A",stn:"密碼錯誤"},
+    {n:"19",t:"13:11:11",eid:4625,pc:FS,acct:"CORP\\svc_backup",lt:3,src:ATK,ws:"WKS-TPE-0932",st:"0xC000006A",stn:"密碼錯誤"},
+    {n:"20",t:"13:11:12",eid:4625,pc:FS,acct:"CORP\\svc_backup",lt:3,src:ATK,ws:"WKS-TPE-0932",st:"0xC000006A",stn:"密碼錯誤",rep:215,
+     more:"備註：本畫面為節錄。13:11:12–13:14:56 之間另有 215 筆完全相同的事件（平均每秒約 1 筆）。\nsvc_backup 未套用帳戶鎖定原則。"},
+
+    {n:"21",t:"13:14:57",eid:4624,ok:1,pc:FS,acct:"CORP\\svc_backup",lt:3,src:ATK,ws:"WKS-TPE-0932",
+     lid:"0x6120AF"},
+
+    {n:"22",t:"13:14:57",eid:4672,ok:1,pc:FS,acct:"CORP\\svc_backup",lid:"0x6120AF",
+     priv:"SeBackupPrivilege\nSeRestorePrivilege\nSeDebugPrivilege\nSeTakeOwnershipPrivilege"},
+
+    {n:"23",t:"13:20:00",eid:4624,ok:1,pc:FS,acct:"CORP\\svc_backup",lt:5,src:"-",ws:"-",
+     proc:"C:\\Windows\\System32\\services.exe",
+     more:"備註：每日 13:20 由備份服務自動啟動，過去 90 天皆有相同事件。"},
+
+    {n:"24",t:"13:22:36",eid:4624,ok:1,pc:FS,acct:"CORP\\svc_backup",lt:10,src:ATK,ws:"WKS-TPE-0932",
+     lid:"0x62F4D1"},
+
+    {n:"25",t:"13:24:02",eid:4648,ok:1,pc:FS,acct:"CORP\\svc_backup",tacct:"CORP\\adm.chou",
+     tsrv:AP,src:ATK,proc:"C:\\Windows\\System32\\mstsc.exe",lid:"0x62F4D1"},
+
+    {n:"26",t:"13:26:18",eid:4624,ok:1,pc:AP,acct:"CORP\\adm.chou",lt:3,src:FSIP,ws:FS,
+     lid:"0x70A115"},
+
+    {n:"27",t:"13:26:18",eid:4672,ok:1,pc:AP,acct:"CORP\\adm.chou",lid:"0x70A115",
+     priv:"SeSecurityPrivilege\nSeBackupPrivilege\nSeDebugPrivilege\nSeTakeOwnershipPrivilege\nSeLoadDriverPrivilege"},
+
+    {n:"28",t:"13:28:44",eid:4625,pc:FS,acct:"CORP\\s.lin",lt:3,src:"10.10.50.30",ws:"WKS-FIN-0448",
+     st:"0xC000006A",stn:"密碼錯誤"},
+
+    {n:"29",t:"13:33:50",eid:4624,ok:1,pc:DC,acct:"CORP\\adm.chou",lt:3,src:APIP,ws:AP,
+     lid:"0x81C902"}
+  ];
+
+  var KEY = {
+    "01":{bad:0,why:"服務啟動的登入（類型 5），帳戶是 SYSTEM、來源是本機。每台伺服器每天都有成百上千筆，是記錄檔裡最主要的噪音來源。"},
+    "02":{bad:0,why:"陷阱題。單獨一筆 4625、類型 10、狀態 0xC000006A —— 看起來符合「RDP 登入失敗」的特徵，但它來自資訊處的管理者網段、是上班時間、而且 27 秒後同一個人就成功登入了。<b>一個人打錯一次密碼就是這個樣子。判斷暴力破解看的是「密度」，不是「有沒有」。</b>"},
+    "03":{bad:0,why:"承上，it.chang 從 WKS-IT-1120 重新輸入密碼後成功。來源網段、時間、帳號三者相符。"},
+    "04":{bad:0,why:"陷阱題。這是類型 10（RDP）的<b>正常</b>範例：管理者 adm.chou 早上九點從資訊處網段連進應用伺服器維運。類型 10 本身不是異常訊號 —— 要問的是「這個帳號、從這個位置、在這個時間，該不該出現」。"},
+    "05":{bad:0,why:"4672 表示登入時被指派了特殊權限，也就是「這是一個管理員等級的登入」。它伴隨第 04 筆的正常維運登入而來，成對出現是預期行為。<b>4672 本身不是告警，它是用來標記「哪些登入是高權限的」，好讓你優先檢查那些。</b>"},
+    "06":{bad:0,why:"帳戶名稱結尾是 <code>$</code>，代表這是<b>電腦帳戶</b>，不是人。伺服器之間的服務通訊（這裡是應用伺服器來取檔）會產生大量這種類型 3 登入，屬於正常背景。"},
+    "07":{bad:0,why:"對應第 06 筆的登出。4634 不含來源 IP 與登入類型以外的資訊，鑑識價值低，主要用來把一段工作階段的頭尾框起來（靠登入識別碼配對）。"},
+    "08":{bad:0,why:"陷阱題。同一個來源、同一個帳號、每小時整點失敗一次，已經持續快一個月 —— 看起來很像慢速暴力破解，實際上是舊備份主機的排程還在用一個已停用的帳號（狀態 0xC0000072「帳號已停用」）。<b>這是設定殘留，該開工單清掉，但不是入侵。真正的破解不會這麼有耐心，也不會固定在整點。</b>"},
+    "09":{bad:0,why:"ANONYMOUS LOGON 的類型 3 在 Windows 網路中是常態（列舉共用、印表機探索等）。單看它不構成異常；要當成訊號，必須配合「來源在哪裡、之後做了什麼」。"},
+    "10":{bad:1,why:"攻擊開始。來源 172.20.14.61 就是上午被巨集打進來的那台財會部工作站 —— <b>一台終端使用者的電腦不該對檔案伺服器做帳號密碼嘗試</b>。"},
+    "11":{bad:1,why:"同一來源、兩秒後換一個帳號。這是<b>密碼噴灑</b>的節奏：每個帳號只試一兩次、快速換人，目的是避開帳戶鎖定原則。"},
+    "12":{bad:1,why:"同上，第三個帳號。"},
+    "13":{bad:1,why:"狀態碼變成 0xC0000064「帳號不存在」—— 對方在<b>猜帳號</b>，而且猜的是預設的 administrator。這台主機的內建管理員已改名，所以猜不到。狀態碼的變化本身就是情報：它告訴你對方事前沒有做過帳號偵察。"},
+    "14":{bad:1,why:"同上，繼續猜通用帳號名稱。"},
+    "15":{bad:1,why:"噴灑階段的最後一筆。整段 39 秒內對 24 個帳戶各試 1–2 次 —— <b>橫向廣度</b>是這個階段的特徵。"},
+    "16":{bad:0,why:"夾在攻擊時間帶中間的服務登入噪音。時間上靠得近，不代表有關係。"},
+    "17":{bad:1,why:"第二階段開始，攻擊模式從「一個帳號試一次」轉成「同一個帳號連續試」—— 從密碼噴灑改成<b>針對性暴力破解</b>。選中 svc_backup 通常是因為服務帳號的密碼很少換、而且常常不套用鎖定原則。"},
+    "18":{bad:1,why:"同上，間隔 1 秒。人不可能用這個速度打字。"},
+    "19":{bad:1,why:"同上。"},
+    "20":{bad:1,why:"本筆代表被摺疊的 215 筆相同事件 —— 13:11:12 到 13:14:56 之間，總共 218 次失敗，全部針對 svc_backup。<b>沒有觸發帳戶鎖定，因為這個服務帳號沒有套用鎖定原則。</b>這正是攻擊者選它的原因，也是這起事件真正的結構性缺陷。"},
+    "21":{bad:1,why:"<b>整份記錄最重要的一筆：218 次失敗之後的那一次成功。</b>同一個帳號、同一個來源 IP、緊接在最後一次失敗之後 —— 這個「一連串 4625 之後緊跟著一筆 4624」的樣式，就是暴力破解成功的標準簽名。判讀時務必把 4625 與 4624 放在同一條時間軸上看，只看其中一種永遠看不到這件事。"},
+    "22":{bad:1,why:"svc_backup 登入時被指派了 SeDebugPrivilege、SeBackupPrivilege 等特殊權限，代表<b>這個被攻破的服務帳號是本機管理員</b>。攻擊者一進來就是高權限，這是災情迅速擴大的原因。SeBackupPrivilege 可以繞過檔案 ACL 讀取任何檔案。"},
+    "23":{bad:0,why:"陷阱題。同一個 svc_backup 帳號、就在攻擊時間帶正中間 —— 但登入類型是 5（服務）、來源是 <code>-</code>（本機）、而且過去 90 天每天 13:20 都有同一筆。<b>這是備份服務自己啟動，不是攻擊者。同一個帳號被盜用，不代表它名下每一筆登入都是攻擊者做的 —— 要靠登入類型與來源位址分辨。</b>"},
+    "24":{bad:1,why:"<b>登入類型 10（RDP）。</b>攻擊者拿到密碼後從網路存取升級成互動式桌面。三個理由讓它必定異常：（一）來源是財會部使用者的工作站，那不是管理跳板；（二）用的是<b>服務帳號</b> —— 服務帳號是給程式跑的，不該有互動式登入；（三）工作站名稱 WKS-TPE-0932 與上午的釣魚事件是同一台。<b>「服務帳號 + 類型 10」這個組合，在任何環境都應該直接告警。</b>"},
+    "25":{bad:1,why:"4648「使用明確認證嘗試登入」—— 這一筆回答了「為什麼帳號會從 svc_backup 換成 adm.chou」。攻擊者在 svc_backup 的桌面工作階段裡，以 adm.chou 的認證發起對 SRV-APP-01 的連線（呼叫行程是 mstsc.exe）。<b>4648 是橫向移動最直接的證據，因為它同時記下了「誰在操作」與「用了誰的身分」。</b>攻擊者取得 adm.chou 憑證的方式（記憶體擷取等）不會出現在這份記錄裡，要靠端點的資料佐證。"},
+    "26":{bad:1,why:"第二台伺服器被登入。來源是 10.10.40.15，也就是 SRV-FS-02 —— <b>攻擊者已經不是從那台工作站直接連了，而是把第一台伺服器當跳板</b>。如果你只封鎖 172.20.14.61，這條路徑仍然活著。"},
+    "27":{bad:1,why:"adm.chou 在應用伺服器上取得特殊權限，其中包含 SeLoadDriverPrivilege（可載入驅動程式）。與第 05 筆是同一個帳號、同樣的權限清單 —— <b>差別只在來源：05 來自管理者網段，27 來自被攻陷的檔案伺服器。</b>光看事件內容兩者幾乎一樣，來源位址是唯一能分辨的欄位。"},
+    "28":{bad:0,why:"陷阱題。時間就在攻擊區間內、同樣是 4625 密碼錯誤、帳號 s.lin 還曾出現在噴灑清單裡 —— 但來源是財務部另一台工作站 WKS-FIN-0448、只有一筆、且是上班時間。<b>時間上的巧合不等於因果。要判斷相關性，看的是來源 IP 與樣式，不是時鐘。</b>"},
+    "29":{bad:1,why:"路徑的終點：從 SRV-APP-01 連進<b>網域控制站</b>。到這一步，攻擊者已經具備嘗試取得整個網域的位置。這也是為什麼這起事件必須以「網域已可能失守」的前提來處理，而不是清掉三台機器就算完。"}
+  };
+
+  var marks = {}, sel = null, flt = "all", asc = false;
+
+  var $ = function(id){ return document.getElementById(id); };
+  function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+  function byN(n){ for(var i=0;i<EV.length;i++){ if(EV[i].n===n) return EV[i]; } return null; }
+
+  var LT = {2:"2  Interactive",3:"3  Network",4:"4  Batch",5:"5  Service",
+            7:"7  Unlock",8:"8  NetworkCleartext",9:"9  NewCredentials",
+            10:"10  RemoteInteractive",11:"11  CachedInteractive"};
+  var TASK = {4624:"登入",4625:"登入",4634:"登出",4672:"特殊登入",4648:"登入"};
+
+  function view(){
+    var l = EV.filter(function(e){
+      if(flt === "all") return true;
+      if(flt === "4625") return e.eid === 4625;
+      if(flt === "4624") return e.eid === 4624 || e.eid === 4634;
+      return e.eid === 4672 || e.eid === 4648;
+    });
+    l = l.slice().sort(function(a, b){ return asc ? (a.t < b.t ? -1 : 1) : (a.t < b.t ? 1 : -1); });
+    return l;
+  }
+
+  function render(){
+    var tb = $("rows"); tb.innerHTML = "";
+    view().forEach(function(e){
+      var tr = document.createElement("tr");
+      tr.className = "row" + (sel === e.n ? " sel" : "");
+      tr.tabIndex = 0;
+      tr.setAttribute("data-n", e.n);
+      var tag = marks[e.n] === "f" ? '<span class="tag f">可疑</span>'
+              : marks[e.n] === "c" ? '<span class="tag c">正常</span>' : "";
+      tr.innerHTML =
+        '<td class="' + (e.ok ? "kw-s" : "kw-f") + '">' + (e.ok ? "稽核成功" : "稽核失敗") + '</td>' +
+        '<td class="mono">2026/04/22 ' + e.t + '</td>' +
+        '<td>Microsoft Windows security</td>' +
+        '<td class="mono">' + e.eid + '</td>' +
+        '<td>' + TASK[e.eid] + '</td>' +
+        '<td class="mono">' + e.pc + '</td>' +
+        '<td class="mono">' + esc(e.acct) + '</td>' +
+        '<td>' + tag + '</td>';
+      tb.appendChild(tr);
+    });
+
+    var f = 0, c = 0;
+    Object.keys(marks).forEach(function(k){ marks[k] === "f" ? f++ : c++; });
+    $("score").textContent = "已標記 " + (f + c) + " / 29　　可疑 " + f + "　　正常 " + c;
+    ["btnFlag","btnClear"].forEach(function(id){ $(id).disabled = !sel; });
+  }
+
+  function detail(e){
+    var L = [];
+    if(e.eid === 4625){
+      L.push("帳戶登入失敗。");
+      L.push("");
+      L.push("主旨：");
+      L.push("    安全性識別碼：       NULL SID");
+      L.push("    帳戶名稱：           -");
+      L.push("    登入識別碼：         0x0");
+      L.push("");
+      L.push("登入失敗的帳戶：");
+      L.push("    安全性識別碼：       NULL SID");
+      L.push("    帳戶名稱：           <b>" + e.acct + "</b>");
+      L.push("");
+      L.push("失敗資訊：");
+      L.push("    失敗原因：           " + e.stn);
+      L.push("    狀態：               <b>" + e.st + "</b>");
+      L.push("    子狀態：             " + e.st);
+      L.push("");
+      L.push("處理程序資訊：");
+      L.push("    呼叫者處理程序名稱： -");
+      L.push("");
+      L.push("網路資訊：");
+      L.push("    工作站名稱：         " + e.ws);
+      L.push("    來源網路位址：       <b>" + e.src + "</b>");
+      L.push("    來源連接埠：         " + (49000 + (parseInt(e.n, 10) * 37) % 900));
+      L.push("");
+      L.push("詳細的驗證資訊：");
+      L.push("    登入處理程序：       NtLmSsp");
+      L.push("    驗證封裝：           NTLM");
+      L.push("    登入類型：           <b>" + LT[e.lt] + "</b>");
+    } else if(e.eid === 4624){
+      L.push("帳戶已成功登入。");
+      L.push("");
+      L.push("登入的新帳戶：");
+      L.push("    安全性識別碼：       " + (e.acct === "ANONYMOUS LOGON" ? "S-1-5-7" : "S-1-5-21-1844237615-…"));
+      L.push("    帳戶名稱：           <b>" + e.acct + "</b>");
+      L.push("    登入識別碼：         " + (e.lid || "-"));
+      L.push("");
+      L.push("登入資訊：");
+      L.push("    登入類型：           <b>" + LT[e.lt] + "</b>");
+      L.push("    受限的系統管理員模式：-");
+      L.push("    虛擬帳戶：           否");
+      L.push("    提高的權杖：         " + (e.lt === 10 || e.lt === 5 ? "是" : "否"));
+      L.push("");
+      L.push("處理程序資訊：");
+      L.push("    處理程序名稱：       " + (e.proc || "-"));
+      L.push("");
+      L.push("網路資訊：");
+      L.push("    工作站名稱：         " + e.ws);
+      L.push("    來源網路位址：       <b>" + e.src + "</b>");
+    } else if(e.eid === 4634){
+      L.push("帳戶已登出。");
+      L.push("");
+      L.push("    帳戶名稱：           " + e.acct);
+      L.push("    登入識別碼：         " + e.lid);
+      L.push("    登入類型：           " + LT[e.lt]);
+    } else if(e.eid === 4672){
+      L.push("指派給新登入的特殊權限。");
+      L.push("");
+      L.push("    帳戶名稱：           <b>" + e.acct + "</b>");
+      L.push("    登入識別碼：         " + e.lid);
+      L.push("");
+      L.push("    特殊權限：");
+      e.priv.split("\n").forEach(function(p){ L.push("        " + p); });
+    } else if(e.eid === 4648){
+      L.push("嘗試使用明確的認證登入。");
+      L.push("");
+      L.push("主旨（發起連線的帳戶）：");
+      L.push("    帳戶名稱：           <b>" + e.acct + "</b>");
+      L.push("    登入識別碼：         " + e.lid);
+      L.push("");
+      L.push("使用的認證所屬的帳戶：");
+      L.push("    帳戶名稱：           <b>" + e.tacct + "</b>");
+      L.push("");
+      L.push("目標伺服器：");
+      L.push("    目標伺服器名稱：     <b>" + e.tsrv + "</b>");
+      L.push("    其他資訊：           " + e.tsrv);
+      L.push("");
+      L.push("處理程序資訊：");
+      L.push("    處理程序名稱：       " + e.proc);
+      L.push("");
+      L.push("網路資訊：");
+      L.push("    網路位址：           " + e.src);
+    }
+    if(e.more){ L.push(""); L.push(e.more); }
+    return L.join("\n");
+  }
+
+  function select(n){
+    sel = n; render();
+    var e = byN(n);
+    $("dtl").innerHTML = detail(e);
+    $("dfoot").textContent =
+      "記錄檔名稱：轉送的事件　　來源：Microsoft Windows security auditing.　　"
+      + "事件識別碼：" + e.eid + "　　記錄時間：2026/04/22 " + e.t + "　　電腦：" + e.pc
+      + (e.rep ? "　　（此筆代表 " + e.rep + " 筆摺疊事件）" : "");
+    $("hint").textContent = "已選取事件 " + e.eid + "（" + e.acct + "）。"
+      + (e.eid === 4625 || e.eid === 4624 ? "先看登入類型與來源網路位址這兩欄。" : "");
+  }
+
+  $("rows").addEventListener("click", function(ev){
+    var tr = ev.target.closest("tr[data-n]"); if(tr) select(tr.getAttribute("data-n"));
+  });
+  $("rows").addEventListener("keydown", function(ev){
+    var tr = ev.target.closest("tr[data-n]");
+    if(tr && (ev.key === "Enter" || ev.key === " ")){ ev.preventDefault(); select(tr.getAttribute("data-n")); }
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll(".flt"), function(b){
+    b.addEventListener("click", function(){
+      Array.prototype.forEach.call(document.querySelectorAll(".flt"), function(x){ x.className = "flt"; });
+      b.className = "flt on";
+      flt = b.getAttribute("data-f");
+      $("hint").textContent = flt === "4625"
+        ? "只看失敗事件可以快速找到破解的節奏，但你會看不到「哪一次成功了」——那才是最重要的一筆。"
+        : flt === "4624"
+        ? "只看成功事件會漏掉前面的失敗，於是那次成功看起來就像一次普通登入。"
+        : "4672 標記高權限登入，4648 標記「用別人的認證去連別台」。這兩個識別碼常被忽略，卻最能說明橫向移動。";
+      render();
+    });
+  });
+
+  $("btnOrder").addEventListener("click", function(){
+    asc = !asc;
+    this.textContent = asc ? "依時間倒序" : "依時間正序";
+    $("hint").textContent = asc
+      ? "正序之後，事情的因果順序才會浮現：先失敗、再成功、再移動。"
+      : "回到事件檢視器的預設（最新在最上面）。";
+    render();
+  });
+
+  $("btnFlag").addEventListener("click", function(){ marks[sel] = "f"; render(); });
+  $("btnClear").addEventListener("click", function(){ marks[sel] = "c"; render(); });
+
+  /* ---- 彙總統計 ---- */
+  function agg(pred, keyFn){
+    var m = {};
+    EV.forEach(function(e){
+      if(!pred(e)) return;
+      var k = keyFn(e);
+      m[k] = (m[k] || 0) + (e.rep || 1);
+    });
+    return Object.keys(m).map(function(k){ return [k, m[k]]; })
+                 .sort(function(a, b){ return b[1] - a[1]; });
+  }
+  function tbl(title, rows, hot){
+    var h = '<p class="sumh">' + title + '</p><table class="sum"><thead><tr><th>項目</th><th style="width:90px">次數</th></tr></thead><tbody>';
+    rows.forEach(function(r){
+      h += '<tr class="' + (r[1] >= hot ? "hot" : "") + '"><td>' + esc(r[0]) + '</td><td class="n">' + r[1] + '</td></tr>';
+    });
+    return h + "</tbody></table>";
+  }
+  $("btnSum").addEventListener("click", function(){
+    var f = function(e){ return e.eid === 4625; }, s = function(e){ return e.eid === 4624; };
+    $("sumBody").innerHTML =
+      tbl("4625 登入失敗 — 依來源網路位址（已計入摺疊的重複事件）", agg(f, function(e){ return e.src; }), 20) +
+      tbl("4625 登入失敗 — 依目標帳戶", agg(f, function(e){ return e.acct; }), 20) +
+      tbl("4624 登入成功 — 依來源網路位址", agg(s, function(e){ return e.src; }), 3) +
+      '<p class="sumh" style="margin-top:10px">同一個來源位址同時出現在「失敗最多」與「成功」兩張表裡，'
+      + '就是暴力破解得手的樣式。接著把該來源的成功事件逐筆展開，看登入類型。</p>';
+    $("modal").classList.add("open");
+    $("btnX").focus();
+  });
+  function closeDlg(){ $("modal").classList.remove("open"); }
+  $("btnX").addEventListener("click", closeDlg);
+  $("modal").addEventListener("click", function(e){ if(e.target === this) closeDlg(); });
+  document.addEventListener("keydown", function(e){ if(e.key === "Escape") closeDlg(); });
+
+  /* ---- 對答案 ---- */
+  $("btnCheck").addEventListener("click", function(){
+    var v = $("verdict"), html = "", right = 0, done = 0;
+    EV.forEach(function(e){
+      var mine = marks[e.n], truth = KEY[e.n].bad ? "f" : "c", ok = mine === truth;
+      if(mine) done++;
+      if(ok) right++;
+      html += '<div class="vrow ' + (ok ? "ok" : (mine ? "no" : "")) + '">'
+            + '<span class="vk">' + (mine ? (ok ? "\u2713" : "\u2717") : "\u2013") + " " + e.n + '</span>'
+            + '<span class="vv"><b>' + (KEY[e.n].bad ? "可疑" : "正常") + "　" + e.eid + "　" + esc(e.acct)
+            + "</b> — " + KEY[e.n].why + '</span></div>';
+    });
+    var head = "<p><b>" + right + " / 29 正確</b>（已作答 " + done + " 筆）。攻擊路徑：</p>"
+      + "<p style=\"font-family:var(--mono);font-size:12px;background:var(--face);padding:9px 12px\">"
+      + "172.20.14.61（WKS-TPE-0932，上午被釣魚打下）\n"
+      + "  → 13:02 密碼噴灑（24 個帳戶）\n"
+      + "  → 13:11 針對 svc_backup 暴力破解（218 次失敗，未觸發鎖定）\n"
+      + "  → 13:14:57 <b>4624 類型 3 成功</b>　＋　4672（本機管理員權限）\n"
+      + "  → 13:22:36 <b>4624 類型 10（RDP）</b>　服務帳號取得互動式桌面\n"
+      + "  → 13:24:02 <b>4648</b>　以 adm.chou 的認證連往 SRV-APP-01\n"
+      + "  → 13:26:18 SRV-APP-01 淪陷（來源已變成 10.10.40.15）\n"
+      + "  → 13:33:50 DC01　網域控制站</p>"
+      + "<p><b>三個要帶走的判讀方法。</b></p><ul>"
+      + "<li><b>4625 與 4624 一定要放在同一條時間軸上看。</b>只篩 4625 會看到破解的節奏卻不知道有沒有得手；只篩 4624 會把那一次成功當成普通登入。第 20 與 21 筆之間只差 1 秒 —— 這 1 秒就是整起事件的分界。</li>"
+      + "<li><b>類型 10 要問三件事：誰、從哪裡、什麼時候。</b>本記錄有四筆類型 10：第 02、03（it.chang，來自管理者網段，正常）、第 04（adm.chou，來自管理者網段，正常）、第 24（svc_backup，來自財會部工作站，異常）。<b>「服務帳號 + 類型 10」永遠是告警。</b></li>"
+      + "<li><b>來源 IP 比帳號更能追蹤攻擊者。</b>帳號會換（svc_backup → adm.chou），但每一跳都會留下來源位址。第 26 筆的來源已經是 SRV-FS-02，代表只封鎖那台工作站沒有用。</li>"
+      + "</ul>"
+      + "<p><b>四個誤判陷阱。</b>第 02 筆（人打錯一次密碼）、第 08 筆（舊排程用停用帳號，每小時一次持續一個月）、"
+      + "第 23 筆（同一個被盜帳號的正常服務登入，類型 5、來源本機）、第 28 筆（攻擊時間帶內、另一台機器的普通打錯密碼）。"
+      + "四個都符合某一項「特徵」，四個都與這次攻擊無關。</p>"
+      + "<p><b>最該修的不是帳號，是設定。</b>svc_backup 沒有套用帳戶鎖定原則，所以 218 次失敗完全沒有被擋；"
+      + "而它又是本機管理員（第 22 筆的特殊權限清單）。這兩件事加起來，才是攻擊者只花 4 分鐘就進來的原因。</p>";
+    v.innerHTML = "<h2>判讀對照</h2>" + head + html;
+    v.className = "verdict show";
+    v.scrollIntoView({behavior:"smooth",block:"nearest"});
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
