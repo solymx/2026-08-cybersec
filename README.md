@@ -18,6 +18,12 @@ Windows VM
 
 https://drive.google.com/file/d/10Ge1p3EjacXe1Jj_b4ZLTIileuqSqCDK/view?usp=drive_link
 
+
+answer
+
+https://hackmd.io/@NjPXbRv6SmKbFYuLhuAqVQ/ByUMsSEUGx
+
+
 ---
 
 Linux VM
